@@ -1,0 +1,83 @@
+{
+  "standardCategories": [
+    {
+      "id": "cat-eletrico",
+      "title": "SISTEMAS ELÉTRICOS E ELETRÔNICOS",
+      "items": []
+    },
+    {
+      "id": "cat-fundeio",
+      "title": "SISTEMAS DE FUNDEIO E AMARRAÇÃO",
+      "items": []
+    },
+    {
+      "id": "cat-navegacao",
+      "title": "NAVEGAÇÃO E SEGURANÇA",
+      "items": []
+    },
+    {
+      "id": "cat-pescaria",
+      "title": "PESCARIA E ISCAS",
+      "items": []
+    },
+    {
+      "id": "cat-conforto",
+      "title": "CONFORTO E ACABAMENTO",
+      "items": []
+    },
+    {
+      "id": "cat-hidraulicos",
+      "title": "SISTEMAS HIDRÁULICOS",
+      "items": []
+    },
+    {
+      "id": "cat-combustivel",
+      "title": "SISTEMAS DE COMBUSTÍVEL E MOTOR",
+      "items": []
+    }
+  ],
+  "technicalSpecs": [],
+  "pricingAndEngine": {
+    "engine": "",
+    "price": "",
+    "options": [
+      {
+        "id": "opt-1790689620786",
+        "engine": "",
+        "price": ""
+      }
+    ]
+  },
+  "general": {
+    "clientName": "Cliente Teste Draft",
+    "modelName": "CAT 420 CAB",
+    "brandSubtitle": "Sportfishing",
+    "modelImage": "",
+    "proposalNumber": "PROP-2026-001",
+    "revision": 1,
+    "date": "2026-09-29"
+  },
+  "author": {
+    "username": "admin",
+    "name": "Administrador"
+  },
+  "updatedAt": "2026-09-29T13:47:05.537Z",
+  "paymentTerms": [
+    "30% sinal",
+    "Saldo até entrega da embarcação"
+  ],
+  "contactAndValidity": {
+    "contact": {
+      "name": "",
+      "phone": "",
+      "email": ""
+    },
+    "validity": [
+      "Orçamento válido por 7 dias, salvo venda prévia.",
+      "Produto entregue em Joinville-SC."
+    ]
+  },
+  "isReadOnly": false,
+  "_savedRevisionSnapshot": "{\"modelName\":\"CAT 420 CAB\",\"brandSubtitle\":\"Yachts\",\"documentTitle\":\"\",\"clientName\":\"Cliente Teste Draft\",\"date\":\"2026-09-29\",\"modelImage\":\"\",\"deliveryTime\":\"90 dias\",\"specs\":[],\"categories\":[{\"name\":\"\",\"items\":[]},{\"name\":\"\",\"items\":[]},{\"name\":\"\",\"items\":[]},{\"name\":\"\",\"items\":[]},{\"name\":\"\",\"items\":[]},{\"name\":\"\",\"items\":[]},{\"name\":\"\",\"items\":[]}],\"pricing\":{\"engine\":\"\",\"price\":\"\",\"options\":[]},\"payment\":[\"30% sinal\",\"Saldo até entrega da embarcação\"],\"contact\":{\"name\":\"\",\"phone\":\"\",\"email\":\"\"},\"validity\":[\"Orçamento válido por 7 dias, salvo venda prévia.\",\"Produto entregue em Joinville-SC.\"]}",
+  "deliveryTime": "90 dias"
+}

@@ -1,0 +1,48 @@
+{
+  "standardCategories": [],
+  "technicalSpecs": [
+    {
+      "id": "spec-1",
+      "name": "Boca",
+      "value": "3.2",
+      "unit": "",
+      "column": 1,
+      "enabled": true
+    }
+  ],
+  "pricingAndEngine": {
+    "price": "R$ 1.500.000",
+    "engine": "2x 300HP",
+    "options": [
+      {
+        "id": "opt-1790689543068",
+        "engine": "2x 300HP",
+        "price": "R$ 1.500.000"
+      }
+    ]
+  },
+  "general": {
+    "clientName": "Cliente Teste Draft",
+    "modelName": "CC 320",
+    "brandSubtitle": "Sportfishing",
+    "modelImage": "/assets/uploads/models/cc_320_1790342340942.jpg",
+    "proposalNumber": "PROP-2026-001",
+    "revision": 1
+  },
+  "author": {
+    "username": "admin",
+    "name": "Administrador"
+  },
+  "updatedAt": "2026-09-29T13:46:49.621Z",
+  "paymentTerms": [],
+  "contactAndValidity": {
+    "contact": {
+      "name": "",
+      "phone": "",
+      "email": ""
+    }
+  },
+  "isReadOnly": false,
+  "_savedRevisionSnapshot": "{\"modelName\":\"CC 320\",\"brandSubtitle\":\"Sportfishing\",\"documentTitle\":\"\",\"clientName\":\"Cliente Teste Draft\",\"date\":\"\",\"modelImage\":\"/assets/uploads/models/cc_320_1790342340942.jpg\",\"deliveryTime\":\"\",\"specs\":[{\"name\":\"Boca\",\"value\":\"3.2\",\"unit\":\"\",\"column\":1,\"enabled\":true,\"bold\":false}],\"categories\":[],\"pricing\":{\"engine\":\"2x 300HP\",\"price\":\"R$ 1.500.000\",\"options\":[]},\"payment\":[],\"contact\":{\"name\":\"\",\"phone\":\"\",\"email\":\"\"},\"validity\":[]}",
+  "deliveryTime": ""
+}

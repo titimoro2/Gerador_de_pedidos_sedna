@@ -1,0 +1,37 @@
+{
+  "modelName": "CC 320",
+  "brandSubtitle": "Sportfishing",
+  "modelImage": "/assets/uploads/models/cc_320_1790342340942.jpg",
+  "technicalSpecs": [
+    {
+      "id": "spec-1",
+      "name": "Boca",
+      "value": "3.2",
+      "unit": "",
+      "column": 1,
+      "enabled": true
+    }
+  ],
+  "standardCategories": [],
+  "pricingAndEngine": {
+    "price": "R$ 1.500.000",
+    "engine": "2x 300HP",
+    "options": [
+      {
+        "id": "opt-1790689543068",
+        "engine": "2x 300HP",
+        "price": "R$ 1.500.000"
+      }
+    ]
+  },
+  "deliveryTime": "",
+  "paymentTerms": [],
+  "contactAndValidity": {
+    "contact": {
+      "name": "",
+      "phone": "",
+      "email": ""
+    }
+  },
+  "updatedAt": "2026-09-29T13:46:49.623Z"
+}

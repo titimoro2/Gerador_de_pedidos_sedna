@@ -1,0 +1,395 @@
+{
+  "modelName": "XF 320",
+  "brandSubtitle": "Sportfishing",
+  "modelImage": "/assets/uploads/models/xf_320_1790601045433.jpeg",
+  "technicalSpecs": [
+    {
+      "id": "spec-1",
+      "name": "Ângulo \"V\" da popa",
+      "value": "16",
+      "unit": "º",
+      "column": 1,
+      "enabled": true
+    },
+    {
+      "id": "spec-2",
+      "name": "Boca máxima",
+      "value": "3,23",
+      "unit": "m",
+      "column": 1,
+      "enabled": true
+    },
+    {
+      "id": "spec-3",
+      "name": "Calado leve",
+      "value": "0,65",
+      "unit": "m",
+      "column": 1,
+      "enabled": true
+    },
+    {
+      "id": "spec-4",
+      "name": "Comprimento total",
+      "value": "9,4",
+      "unit": "m",
+      "column": 1,
+      "enabled": true
+    },
+    {
+      "id": "spec-5",
+      "name": "Pé direito cabine",
+      "value": "1,92",
+      "unit": "m",
+      "column": 1,
+      "enabled": true
+    },
+    {
+      "id": "spec-6",
+      "name": "Suíte",
+      "value": "1",
+      "unit": "",
+      "column": 2,
+      "enabled": true
+    },
+    {
+      "id": "spec-7",
+      "name": "Leito",
+      "value": "1",
+      "unit": "",
+      "column": 2,
+      "enabled": true
+    },
+    {
+      "id": "spec-8",
+      "name": "Toalete",
+      "value": "1",
+      "unit": "",
+      "column": 2,
+      "enabled": true
+    },
+    {
+      "id": "spec-9",
+      "name": "Cozinha",
+      "value": "1",
+      "unit": "",
+      "column": 2,
+      "enabled": true
+    },
+    {
+      "id": "spec-10",
+      "name": "Área gourmet",
+      "value": "1",
+      "unit": "",
+      "column": 2,
+      "enabled": true
+    },
+    {
+      "id": "spec-11",
+      "name": "Peso",
+      "value": "5.000",
+      "unit": "kg",
+      "column": 3,
+      "enabled": true
+    },
+    {
+      "id": "spec-12",
+      "name": "Passageiros",
+      "value": "1 + 11",
+      "unit": "",
+      "column": 3,
+      "enabled": true
+    },
+    {
+      "id": "spec-13",
+      "name": "Pé direito do toalete",
+      "value": "1,92",
+      "unit": "m",
+      "column": 3,
+      "enabled": true
+    },
+    {
+      "id": "spec-14",
+      "name": "Tanque água potável",
+      "value": "150",
+      "unit": "L",
+      "column": 3,
+      "enabled": true
+    },
+    {
+      "id": "spec-15",
+      "name": "Tanque combustível",
+      "value": "975",
+      "unit": "L",
+      "column": 3,
+      "enabled": true
+    },
+    {
+      "id": "spec-16",
+      "name": "Motorização - Centro",
+      "value": "2x300HP",
+      "unit": "",
+      "column": 3,
+      "enabled": true
+    }
+  ],
+  "standardCategories": [
+    {
+      "id": "cat-eletrico",
+      "title": "SISTEMAS ELÉTRICOS E ELETRÔNICOS",
+      "items": [
+        {
+          "name": "Alto-falantes 6.5\" (4)",
+          "enabled": true
+        },
+        {
+          "name": "Antena VHF 2,4 m / 6 dB",
+          "enabled": true
+        },
+        {
+          "name": "Aparelho de som",
+          "enabled": true
+        },
+        {
+          "name": "Carregador de baterias",
+          "enabled": true
+        },
+        {
+          "name": "Carregador por indução no painel",
+          "enabled": true
+        },
+        {
+          "name": "Guincho elétrico 100W / 12V",
+          "enabled": true
+        },
+        {
+          "name": "Iluminação de navegação",
+          "enabled": true
+        },
+        {
+          "name": "Isolador galvânico",
+          "enabled": true
+        },
+        {
+          "name": "Luz de cortesia",
+          "enabled": true
+        },
+        {
+          "name": "Luzes em LED na borda falsa",
+          "enabled": true
+        },
+        {
+          "name": "Rádio VHF",
+          "enabled": true
+        },
+        {
+          "name": "Sensores de alagamento (2)",
+          "enabled": true
+        },
+        {
+          "name": "Sensores digitais de nível de combustível e água",
+          "enabled": true
+        },
+        {
+          "name": "Tomada de cais",
+          "enabled": true
+        },
+        {
+          "name": "Tomadas para carretilha elétrica (4)",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "cat-fundeio",
+      "title": "SISTEMAS DE FUNDEIO E AMARRAÇÃO",
+      "items": [
+        {
+          "name": "Âncora 15kg, 20m de corrente 8mm e 50m de cabo",
+          "enabled": true
+        },
+        {
+          "name": "Cunhos de amarração rebatíveis em inox (6)",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "cat-navegacao",
+      "title": "NAVEGAÇÃO E SEGURANÇA",
+      "items": [
+        {
+          "name": "Bússola de navegação",
+          "enabled": true
+        },
+        {
+          "name": "Buzina",
+          "enabled": true
+        },
+        {
+          "name": "Guarda Mancebo",
+          "enabled": true
+        },
+        {
+          "name": "Piloto automático",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "cat-pescaria",
+      "title": "PESCARIA E ISCAS",
+      "items": [
+        {
+          "name": "Armários para iscas em acrílico (2)",
+          "enabled": true
+        },
+        {
+          "name": "Caixas de peixes c/ bomba maceradora (2)",
+          "enabled": true
+        },
+        {
+          "name": "Porta-varas na praça de popa (8)",
+          "enabled": true
+        },
+        {
+          "name": "Porta-varas no hardtop (8)",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "cat-conforto",
+      "title": "CONFORTO E ACABAMENTO",
+      "items": [
+        {
+          "name": "Colchão na cabine",
+          "enabled": true
+        },
+        {
+          "name": "Banco do piloto 2 lugares, rebatível em couro",
+          "enabled": true
+        },
+        {
+          "name": "Escada na plataforma de popa",
+          "enabled": true
+        },
+        {
+          "name": "Geladeira Elber 12v",
+          "enabled": true
+        },
+        {
+          "name": "Gaiuta de proa",
+          "enabled": true
+        },
+        {
+          "name": "Lixeira em acrílico 20 L",
+          "enabled": true
+        },
+        {
+          "name": "Mesa em teca com base regulavel na praça de popa",
+          "enabled": true
+        },
+        {
+          "name": "Mesa em teca com base regulável na cabine",
+          "enabled": true
+        },
+        {
+          "name": "Microondas 20L",
+          "enabled": true
+        },
+        {
+          "name": "Piso em EVA (cor à escolha do cliente)",
+          "enabled": true
+        },
+        {
+          "name": "Porta-copos (6)",
+          "enabled": true
+        },
+        {
+          "name": "Sofá na praça de popa com geleira",
+          "enabled": true
+        },
+        {
+          "name": "Sofá na proa",
+          "enabled": true
+        },
+        {
+          "name": "Solarium na proa",
+          "enabled": true
+        },
+        {
+          "name": "Vigias laterais (2)",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "cat-hidraulicos",
+      "title": "SISTEMAS HIDRÁULICOS",
+      "items": [
+        {
+          "name": "Bombas de porão (3)",
+          "enabled": true
+        },
+        {
+          "name": "Caixas coletoras 800 GPH (1)",
+          "enabled": true
+        },
+        {
+          "name": "Duchas de água doce na proa e na popa",
+          "enabled": true
+        },
+        {
+          "name": "Tanque de águas negras",
+          "enabled": true
+        },
+        {
+          "name": "Toalete com vaso elétrico e ducha de mão",
+          "enabled": true
+        },
+        {
+          "name": "Pia com água doce",
+          "enabled": true
+        }
+      ]
+    },
+    {
+      "id": "cat-combustivel",
+      "title": "SISTEMAS DE COMBUSTÍVEL E MOTOR",
+      "items": [
+        {
+          "name": "Tanque de combustível 975L",
+          "enabled": true
+        }
+      ]
+    }
+  ],
+  "pricingAndEngine": {
+    "engine": "2X Mercury 300 HP Gasolina",
+    "price": "R$ 1.300.000,00",
+    "options": [
+      {
+        "id": "opt-1790689614192",
+        "engine": "2X Mercury 300 HP Gasolina",
+        "price": "R$ 1.300.000,00"
+      }
+    ]
+  },
+  "deliveryTime": "90 dias",
+  "paymentTerms": [
+    "30% sinal",
+    "Saldo até entrega da embarcação"
+  ],
+  "contactAndValidity": {
+    "contact": {
+      "name": "",
+      "phone": "",
+      "email": ""
+    },
+    "validity": [
+      "* Orçamento válido por 7 dias, salvo venda prévia.",
+      "* Produto entregue em Joinville-SC."
+    ]
+  },
+  "updatedAt": "2026-09-29T13:47:06.750Z"
+}

@@ -1,0 +1,71 @@
+{
+  "modelName": "CAT 420",
+  "brandSubtitle": "Sportfishing",
+  "modelImage": "/assets/uploads/models/cat_420_1790597056918.jpg",
+  "technicalSpecs": [],
+  "standardCategories": [
+    {
+      "id": "cat-eletrico",
+      "title": "SISTEMAS ELÉTRICOS E ELETRÔNICOS",
+      "items": []
+    },
+    {
+      "id": "cat-fundeio",
+      "title": "SISTEMAS DE FUNDEIO E AMARRAÇÃO",
+      "items": []
+    },
+    {
+      "id": "cat-navegacao",
+      "title": "NAVEGAÇÃO E SEGURANÇA",
+      "items": []
+    },
+    {
+      "id": "cat-pescaria",
+      "title": "PESCARIA E ISCAS",
+      "items": []
+    },
+    {
+      "id": "cat-conforto",
+      "title": "CONFORTO E ACABAMENTO",
+      "items": []
+    },
+    {
+      "id": "cat-hidraulicos",
+      "title": "SISTEMAS HIDRÁULICOS",
+      "items": []
+    },
+    {
+      "id": "cat-combustivel",
+      "title": "SISTEMAS DE COMBUSTÍVEL E MOTOR",
+      "items": []
+    }
+  ],
+  "pricingAndEngine": {
+    "engine": "",
+    "price": "",
+    "options": [
+      {
+        "id": "opt-1790689615783",
+        "engine": "",
+        "price": ""
+      }
+    ]
+  },
+  "deliveryTime": "90 dias",
+  "paymentTerms": [
+    "30% sinal",
+    "Saldo até entrega da embarcação"
+  ],
+  "contactAndValidity": {
+    "contact": {
+      "name": "",
+      "phone": "",
+      "email": ""
+    },
+    "validity": [
+      "Orçamento válido por 7 dias, salvo venda prévia.",
+      "Produto entregue em Joinville-SC."
+    ]
+  },
+  "updatedAt": "2026-09-29T13:47:04.554Z"
+}

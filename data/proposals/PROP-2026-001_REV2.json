@@ -1,0 +1,419 @@
+{
+  "updatedAt": "2026-09-28T15:29:33.095Z",
+  "general": {
+    "modelName": "CAT 370",
+    "brandName": "Sedna",
+    "brandSubtitle": "Sportfishing",
+    "documentTitle": "PROPOSTA COMERCIAL",
+    "clientName": "Milton Ferraz",
+    "proposalNumber": "PROP-2026-001",
+    "revision": 2,
+    "date": "2026-09-25",
+    "logoUrl": "/assets/logo_sedna.png",
+    "modelLogoUrl": "/assets/logo_cc320.png",
+    "modelImage": "/assets/uploads/models/cat_370_1790596832506.jpg"
+  },
+  "technicalSpecs": [
+    {
+      "id": "spec-1",
+      "name": "Boca máxima",
+      "value": "3,60",
+      "unit": "m",
+      "column": 1,
+      "enabled": true
+    },
+    {
+      "id": "spec-2",
+      "name": "Calado leve",
+      "value": "0,40",
+      "unit": "m",
+      "column": 1,
+      "enabled": true
+    },
+    {
+      "id": "spec-3",
+      "name": "Comprimento total",
+      "value": "11,3",
+      "unit": "m",
+      "column": 1,
+      "enabled": true
+    },
+    {
+      "id": "spec-4",
+      "name": "Pé direito cabine",
+      "value": "1,47",
+      "unit": "m",
+      "column": 1,
+      "enabled": true
+    },
+    {
+      "id": "spec-5",
+      "name": "Peso",
+      "value": "5.000",
+      "unit": "kg",
+      "column": 3,
+      "enabled": true
+    },
+    {
+      "id": "spec-6",
+      "name": "Passageiros",
+      "value": "1 + 15",
+      "unit": "un",
+      "column": 3,
+      "enabled": true
+    },
+    {
+      "id": "spec-7",
+      "name": "Tanque água potável",
+      "value": "270",
+      "unit": "L",
+      "column": 3,
+      "enabled": true
+    },
+    {
+      "id": "spec-8",
+      "name": "Tanque combustível",
+      "value": "2000",
+      "unit": "L",
+      "column": 3,
+      "enabled": true
+    },
+    {
+      "id": "spec-9",
+      "name": "Motorização - Centro",
+      "value": "4X 300 ou 4x400",
+      "unit": "",
+      "column": 3,
+      "enabled": true
+    },
+    {
+      "id": "spec-1790600881405",
+      "name": "Banheiro",
+      "value": "1",
+      "unit": "",
+      "column": 2,
+      "enabled": true
+    },
+    {
+      "id": "spec-1790600884708",
+      "name": "Quarto",
+      "value": "1",
+      "unit": "",
+      "column": 2,
+      "enabled": true
+    }
+  ],
+  "standardCategories": [
+    {
+      "id": "cat-eletrico",
+      "title": "SISTEMAS ELÉTRICOS E ELETRÔNICOS",
+      "items": [
+        {
+          "name": "Alto-falantes 6.5\" (4)",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Antena VHF 2,4 m / 6 dB",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Aparelho de som",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Carregador de baterias 60 A",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Carregador por indução no painel",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Guincho elétrico 100W / 12V",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Iluminação de navegação",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Isolador galvânico",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Luz de cortesia",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Luzes em LED na borda falsa",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Rádio VHF",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Sensores de alagamento (4)",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Sensores digitais de nível de combustível e água",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Tomada de cais",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Tomadas para carretilha elétrica (4)",
+          "enabled": true,
+          "bold": false
+        }
+      ]
+    },
+    {
+      "id": "cat-fundeio",
+      "title": "SISTEMAS DE FUNDEIO E AMARRAÇÃO",
+      "items": [
+        {
+          "name": "Âncora 15kg, 20m de corrente 8mm e 50m de cabo",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Cunhos de amarração rebatíveis em inox (6)",
+          "enabled": true,
+          "bold": false
+        }
+      ]
+    },
+    {
+      "id": "cat-navegacao",
+      "title": "NAVEGAÇÃO E SEGURANÇA",
+      "items": [
+        {
+          "name": "Bússola de navegação",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Limpador de para-brisa",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Piloto automático",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Porta-extintor em acrílico",
+          "enabled": true,
+          "bold": false
+        }
+      ]
+    },
+    {
+      "id": "cat-pescaria",
+      "title": "PESCARIA E ISCAS",
+      "items": [
+        {
+          "name": "Armários para iscas em acrílico (2)",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Caixas de peixes c/ bomba maceradora (3)",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Porta-varas na praça de popa (8)",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Porta-varas no hardtop (8)",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Porta-varas no solarium de proa (14)",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Viveiro de isca-viva na popa 250 L",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Tuna tube 4\" (4)",
+          "enabled": true,
+          "bold": false
+        }
+      ]
+    },
+    {
+      "id": "cat-conforto",
+      "title": "CONFORTO E ACABAMENTO",
+      "items": [
+        {
+          "name": "Cama de casal",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Toalete com vaso sanitário elétrico",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Banco do piloto 3 lugares, rebatível com porta-copos",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Escada na plataforma de popa",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Lixeira em acrílico 20 L",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Piso em EVA (cor à escolha do cliente)",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Porta-copos (6)",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Sofá na praça de popa com geleira",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Sofá na proa",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Solarium na proa",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Vigias laterais (2)",
+          "enabled": true,
+          "bold": false
+        }
+      ]
+    },
+    {
+      "id": "cat-hidraulicos",
+      "title": "SISTEMAS HIDRÁULICOS",
+      "items": [
+        {
+          "name": "Bombas de porão (10)",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Caixas coletoras 800 GPH (2)",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Deck Wash com suporte inox na proa e na popa",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Duchas de água doce na proa e na popa",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Tanque de águas negras 25L",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Toalete com vaso elétrico e ducha de mão",
+          "enabled": true,
+          "bold": false
+        }
+      ]
+    },
+    {
+      "id": "cat-combustivel",
+      "title": "SISTEMAS DE COMBUSTÍVEL E MOTOR",
+      "items": [
+        {
+          "name": "Tanque de combustível 2000L",
+          "enabled": true,
+          "bold": false
+        },
+        {
+          "name": "Sistema estanque de combustível, com bomba de porão preparada para combustível",
+          "enabled": true,
+          "bold": false
+        }
+      ]
+    }
+  ],
+  "pricingAndEngine": {
+    "engine": "4X Mercury 300 HP Verado Gasolina",
+    "price": "R$ 2.300.000,00",
+    "options": [
+      {
+        "id": "opt-1790600599292",
+        "engine": "4X Mercury 300 HP Verado Gasolina",
+        "price": "R$ 2.300.000,00"
+      }
+    ]
+  },
+  "paymentTerms": [
+    "A combinar"
+  ],
+  "deliveryTime": "Dez/2026",
+  "contactAndValidity": {
+    "contact": {
+      "name": "Debora Santos",
+      "phone": "(47) 9 9187-9441",
+      "email": "comercial@sednagroup.com.br"
+    },
+    "validity": [
+      "Orçamento válido durante a SPBS",
+      "Produto entregue em Joinville-SC."
+    ]
+  },
+  "author": {
+    "username": "debora",
+    "name": "Débora Santos"
+  },
+  "isReadOnly": false,
+  "id": "PROP-2026-001_REV2",
+  "name": "CAT 370 - Milton Ferraz",
+  "_savedRevisionSnapshot": "{\"modelName\":\"CAT 370\",\"brandSubtitle\":\"Sportfishing\",\"documentTitle\":\"PROPOSTA COMERCIAL\",\"clientName\":\"Milton Ferraz\",\"date\":\"2026-09-25\",\"modelImage\":\"/assets/uploads/models/cat_370_1790596832506.jpg\",\"deliveryTime\":\"Dez/2026\",\"specs\":[{\"name\":\"Boca máxima\",\"value\":\"3,60\",\"unit\":\"m\",\"column\":1,\"enabled\":true,\"bold\":false},{\"name\":\"Calado leve\",\"value\":\"0,40\",\"unit\":\"m\",\"column\":1,\"enabled\":true,\"bold\":false},{\"name\":\"Comprimento total\",\"value\":\"11,3\",\"unit\":\"m\",\"column\":1,\"enabled\":true,\"bold\":false},{\"name\":\"Pé direito cabine\",\"value\":\"1,47\",\"unit\":\"m\",\"column\":1,\"enabled\":true,\"bold\":false},{\"name\":\"Peso\",\"value\":\"5.000\",\"unit\":\"kg\",\"column\":3,\"enabled\":true,\"bold\":false},{\"name\":\"Passageiros\",\"value\":\"1 + 15\",\"unit\":\"un\",\"column\":3,\"enabled\":true,\"bold\":false},{\"name\":\"Tanque água potável\",\"value\":\"270\",\"unit\":\"L\",\"column\":3,\"enabled\":true,\"bold\":false},{\"name\":\"Tanque combustível\",\"value\":\"2000\",\"unit\":\"L\",\"column\":3,\"enabled\":true,\"bold\":false},{\"name\":\"Motorização - Centro\",\"value\":\"4X 300 ou 4x400\",\"unit\":\"\",\"column\":3,\"enabled\":true,\"bold\":false},{\"name\":\"Banheiro\",\"value\":\"5\",\"unit\":\"\",\"column\":2,\"enabled\":true,\"bold\":false},{\"name\":\"Quarto\",\"value\":\"1\",\"unit\":\"\",\"column\":2,\"enabled\":true,\"bold\":false}],\"categories\":[{\"name\":\"\",\"items\":[{\"name\":\"Alto-falantes 6.5\\\" (4)\",\"enabled\":true,\"bold\":false},{\"name\":\"Antena VHF 2,4 m / 6 dB\",\"enabled\":true,\"bold\":false},{\"name\":\"Aparelho de som\",\"enabled\":true,\"bold\":false},{\"name\":\"Carregador de baterias 60 A\",\"enabled\":true,\"bold\":false},{\"name\":\"Carregador por indução no painel\",\"enabled\":true,\"bold\":false},{\"name\":\"Guincho elétrico 100W / 12V\",\"enabled\":true,\"bold\":false},{\"name\":\"Iluminação de navegação\",\"enabled\":true,\"bold\":false},{\"name\":\"Isolador galvânico\",\"enabled\":true,\"bold\":false},{\"name\":\"Luz de cortesia\",\"enabled\":true,\"bold\":false},{\"name\":\"Luzes em LED na borda falsa\",\"enabled\":true,\"bold\":false},{\"name\":\"Rádio VHF\",\"enabled\":true,\"bold\":false},{\"name\":\"Sensores de alagamento (4)\",\"enabled\":true,\"bold\":false},{\"name\":\"Sensores digitais de nível de combustível e água\",\"enabled\":true,\"bold\":false},{\"name\":\"Tomada de cais\",\"enabled\":true,\"bold\":false},{\"name\":\"Tomadas para carretilha elétrica (4)\",\"enabled\":true,\"bold\":false}]},{\"name\":\"\",\"items\":[{\"name\":\"Âncora 15kg, 20m de corrente 8mm e 50m de cabo\",\"enabled\":true,\"bold\":false},{\"name\":\"Cunhos de amarração rebatíveis em inox (6)\",\"enabled\":true,\"bold\":false}]},{\"name\":\"\",\"items\":[{\"name\":\"Bússola de navegação\",\"enabled\":true,\"bold\":false},{\"name\":\"Limpador de para-brisa\",\"enabled\":true,\"bold\":false},{\"name\":\"Piloto automático\",\"enabled\":true,\"bold\":false},{\"name\":\"Porta-extintor em acrílico\",\"enabled\":true,\"bold\":false}]},{\"name\":\"\",\"items\":[{\"name\":\"Armários para iscas em acrílico (2)\",\"enabled\":true,\"bold\":false},{\"name\":\"Caixas de peixes c/ bomba maceradora (3)\",\"enabled\":true,\"bold\":false},{\"name\":\"Porta-varas na praça de popa (8)\",\"enabled\":true,\"bold\":false},{\"name\":\"Porta-varas no hardtop (8)\",\"enabled\":true,\"bold\":false},{\"name\":\"Porta-varas no solarium de proa (14)\",\"enabled\":true,\"bold\":false},{\"name\":\"Viveiro de isca-viva na popa 250 L\",\"enabled\":true,\"bold\":false},{\"name\":\"Tuna tube 4\\\" (4)\",\"enabled\":true,\"bold\":false}]},{\"name\":\"\",\"items\":[{\"name\":\"Cama de casal\",\"enabled\":true,\"bold\":false},{\"name\":\"Toalete com vaso sanitário elétrico\",\"enabled\":true,\"bold\":false},{\"name\":\"Banco do piloto 3 lugares, rebatível com porta-copos\",\"enabled\":true,\"bold\":false},{\"name\":\"Escada na plataforma de popa\",\"enabled\":true,\"bold\":false},{\"name\":\"Lixeira em acrílico 20 L\",\"enabled\":true,\"bold\":false},{\"name\":\"Piso em EVA (cor à escolha do cliente)\",\"enabled\":true,\"bold\":false},{\"name\":\"Porta-copos (6)\",\"enabled\":true,\"bold\":false},{\"name\":\"Sofá na praça de popa com geleira\",\"enabled\":true,\"bold\":false},{\"name\":\"Sofá na proa\",\"enabled\":true,\"bold\":false},{\"name\":\"Solarium na proa\",\"enabled\":true,\"bold\":false},{\"name\":\"Vigias laterais (2)\",\"enabled\":true,\"bold\":false}]},{\"name\":\"\",\"items\":[{\"name\":\"Bombas de porão (10)\",\"enabled\":true,\"bold\":false},{\"name\":\"Caixas coletoras 800 GPH (2)\",\"enabled\":true,\"bold\":false},{\"name\":\"Deck Wash com suporte inox na proa e na popa\",\"enabled\":true,\"bold\":false},{\"name\":\"Duchas de água doce na proa e na popa\",\"enabled\":true,\"bold\":false},{\"name\":\"Tanque de águas negras 25L\",\"enabled\":true,\"bold\":false},{\"name\":\"Toalete com vaso elétrico e ducha de mão\",\"enabled\":true,\"bold\":false}]},{\"name\":\"\",\"items\":[{\"name\":\"Tanque de combustível 2000L\",\"enabled\":true,\"bold\":false},{\"name\":\"Sistema estanque de combustível, com bomba de porão preparada para combustível\",\"enabled\":true,\"bold\":false}]}],\"pricing\":{\"engine\":\"4X Mercury 300 HP Verado Gasolina\",\"price\":\"R$ 2.300.000,00\",\"options\":[{\"engine\":\"4X Mercury 300 HP Verado Gasolina\",\"price\":\"R$ 2.300.000,00\",\"selected\":false}]},\"payment\":[\"A combinar\"],\"contact\":{\"name\":\"Debora Santos\",\"phone\":\"(47) 9 9187-9441\",\"email\":\"comercial@sednagroup.com.br\"},\"validity\":[\"Orçamento válido durante a SPBS\",\"Produto entregue em Joinville-SC.\"]}"
+}

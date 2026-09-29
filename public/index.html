@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema Gerador de Pedidos e Propostas Comerciais</title>
+  <!-- Google Fonts: Barlow & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css?v=2.4">
+</head>
+<body spellcheck="true">
+  <!-- Top Navigation Bar -->
+  <header class="navbar">
+    <div class="nav-container">
+      <div class="nav-brand">
+        <img src="/assets/logo_sedna.png" alt="Sedna" class="nav-logo" id="headerNavLogo" onerror="this.style.display='none'">
+        <div>
+          <span class="brand-title">GERADOR DE PEDIDOS</span>
+          <span class="brand-subtitle">Sedna Sport Fishing &middot; Propostas Comerciais</span>
+        </div>
+      </div>
+
+      <div class="nav-actions">
+        <button id="btnSavedProposals" class="btn btn-secondary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+          Propostas Salvas
+        </button>
+        <button id="btnRestoreCurrentModel" class="btn btn-secondary" title="Descarta alterações e restaura a última versão salva deste modelo no disco">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+          Restaurar Modelo Salvo
+        </button>
+        <button id="btnSaveActive" class="btn btn-primary">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+          Salvar Dados
+        </button>
+        <button id="btnSaveAs" class="btn btn-outline">
+          Salvar Como...
+        </button>
+        
+        <!-- User Profile Pill & Actions (Hidden until authenticated) -->
+        <div class="nav-user-area" id="navUserArea" style="display: none;">
+          <div class="user-pill" id="userPill">
+            <span class="user-avatar" id="navUserAvatar">👤</span>
+            <div class="user-details">
+              <span class="user-name" id="navUserName">...</span>
+              <span class="user-role-badge" id="navUserRole">Comercial</span>
+            </div>
+          </div>
+          <button id="btnOpenUserManagement" class="btn btn-sm btn-outline-primary" style="display: none;" title="Gerenciar Usuários e Permissões">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+            Usuários
+          </button>
+          <button id="btnLogout" class="btn btn-sm btn-outline-danger" title="Encerrar Sessão">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+            Sair
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Read-Only Notice Banner -->
+  <div id="readOnlyBanner" class="readonly-alert-banner" style="display: none;">
+    <div class="container flex-between">
+      <div class="readonly-content">
+        <span class="readonly-icon">👁️</span>
+        <div>
+          <strong>MODO SOMENTE LEITURA</strong> &mdash; 
+          Esta proposta pertence ao vendedor(a) <strong id="readOnlyAuthorName" class="author-highlight">Débora Santos</strong>.
+          <span class="readonly-desc">Você pode inspecionar e gerar a pré-visualização, mas não pode alterar ou sobrescrever os dados deste vendedor.</span>
+        </div>
+      </div>
+      <button id="btnForkProposal" class="btn btn-sm btn-primary">
+        Criar Minha Cópia (Salvar Como)
+      </button>
+    </div>
+  </div>
+
+  <main class="main-container">
+    <!-- View Mode Switcher -->
+    <div class="tabs-bar">
+      <button class="tab-btn active" data-tab="tab-form">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
+        Painel de Configuração
+      </button>
+      <button class="tab-btn" data-tab="tab-preview">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+        Pré-Visualização do Pedido (Documento)
+      </button>
+      <button class="tab-btn" data-tab="tab-json">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+        JSON Estruturado
+      </button>
+    </div>
+
+    <!-- TAB 1: FORM -->
+    <div id="tab-form" class="tab-content active">
+      
+      <!-- Section 1: Identificação do Modelo e Proposta -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="card-step-num">1</span>
+            <h2>Identificação do Modelo & Proposta Comercial</h2>
+          </div>
+          <span class="card-desc">Informações gerais que identificam a embarcação e o pedido</span>
+        </div>
+        <div class="card-body">
+          <div class="model-section-grid">
+            
+            <!-- 1.1 Modelo da Embarcação (Checkboxes + Botão Adicionar Modelo) -->
+            <div class="form-group model-selection-group">
+              <div class="flex-between" style="margin-bottom: 6px;">
+                <div>
+                  <label>Modelo da Embarcação</label>
+                  <small class="text-muted" style="display: block; font-size: 0.74rem; margin-top: 1px;">
+                    Rascunhos temporários salvos por modelo. Alterne entre barcos sem perder suas alterações.
+                  </small>
+                </div>
+                <div class="btn-group">
+                  <button type="button" id="btnRestoreModelSection" class="btn btn-sm btn-outline-warning" title="Descarta o rascunho temporário e restaura a versão original de fábrica deste modelo">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+                    Restaurar Padrão
+                  </button>
+                  <button type="button" id="btnOpenAddModel" class="btn btn-sm btn-outline-primary">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    Adicionar Modelo
+                  </button>
+                </div>
+              </div>
+              <div class="models-checkbox-container" id="modelsCheckboxContainer">
+                <!-- Checkboxes populated via JS -->
+              </div>
+              <!-- Inline Add Model Box -->
+              <div id="addModelInlineBox" class="add-model-box" style="display: none;">
+                <input type="text" id="inpNewModelName" class="form-control" placeholder="Nome do novo modelo (ex: CC 340)">
+                <div class="btn-group">
+                  <button type="button" id="btnConfirmAddModel" class="btn btn-sm btn-primary">Salvar</button>
+                  <button type="button" id="btnCancelAddModel" class="btn btn-sm btn-secondary">Cancelar</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 1.2 Subtítulo e Linha (Sportfishing e Yachts) -->
+            <div class="form-group line-selection-group">
+              <label>Linha / Subtítulo</label>
+              <div class="line-selector-group">
+                <label class="line-pill-option active" id="lblLineSportfishing">
+                  <input type="radio" name="brandLineRadio" value="Sportfishing" checked>
+                  <span class="line-pill-text">Sportfishing</span>
+                </label>
+                <label class="line-pill-option" id="lblLineYachts">
+                  <input type="radio" name="brandLineRadio" value="Yachts">
+                  <span class="line-pill-text">Yachts</span>
+                </label>
+              </div>
+            </div>
+
+            <!-- 1.3 Número da Proposta & Sistema de Revisões (Automático) -->
+            <div class="form-group proposal-num-group">
+              <div class="flex-between" style="margin-bottom: 6px;">
+                <label>Nº da Proposta & Revisão</label>
+                <span class="badge-auto">Automático</span>
+              </div>
+              <div class="proposal-number-box">
+                <div class="proposal-number-display">
+                  <span class="prop-num" id="displayProposalNumber">PROP-2026-001</span>
+                  <span class="rev-badge" id="displayRevisionBadge">REV 1</span>
+                </div>
+                <div class="revision-actions">
+                  <button type="button" id="btnNewRevision" class="btn btn-sm btn-accent" title="Cria e salva a próxima revisão deste pedido">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                    Nova Revisão (REV+1)
+                  </button>
+                  <button type="button" id="btnNewProposalNumber" class="btn btn-sm btn-outline" title="Gera o próximo número de pedido sequencial">
+                    Novo Pedido
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 1.4 Nome do Cliente (Caixa de Texto) -->
+            <div class="form-group client-group">
+              <label for="inpClientName">Nome do Cliente / Empresa</label>
+              <input type="text" id="inpClientName" class="form-control" placeholder="Digite o nome completo do cliente...">
+            </div>
+
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 2: Características Técnicas -->
+      <section class="card">
+        <div class="card-header flex-between">
+          <div>
+            <div class="card-title">
+              <span class="card-step-num">2</span>
+              <h2>Características Técnicas</h2>
+            </div>
+            <span class="card-desc">Marque a caixinha (checkbox) dos itens que deseja incluir no pedido. Edite números, graus (º) e litros (L).</span>
+          </div>
+          <div class="btn-group">
+            <button type="button" id="btnToggleAllSpecs" class="btn btn-sm btn-outline">Marcar/Desmarcar Todas</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <!-- Barra de Filtro de Colunas (para navegar facilmente e garantir visibilidade total) -->
+          <div class="specs-toolbar flex-between">
+            <div class="column-filter-pills" id="colFilterPills">
+              <button type="button" class="col-filter-btn active" data-col="all">Todas as 3 Colunas</button>
+              <button type="button" class="col-filter-btn" data-col="1">Coluna 1 (Casco / Dimensões)</button>
+              <button type="button" class="col-filter-btn" data-col="2">Coluna 2 (Acomodações)</button>
+              <button type="button" class="col-filter-btn" data-col="3">Coluna 3 (Capacidades / Motor)</button>
+            </div>
+            <span class="text-muted" id="specsCountBadge">Carregando itens...</span>
+          </div>
+          
+          <div class="specs-grid" id="specsContainer">
+            <!-- Dynamically populated via JS -->
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 3: Itens de Série (7 Categorias) -->
+      <section class="card">
+        <div class="card-header flex-between">
+          <div>
+            <div class="card-title">
+              <span class="card-step-num">3</span>
+              <h2>Itens de Série por Categoria</h2>
+            </div>
+            <span class="card-desc">Marque os itens que deseja incluir no pedido. As 7 categorias de sistemas da embarcação em 2 colunas.</span>
+          </div>
+          <div class="btn-group">
+            <button type="button" id="btnToggleAllCategories" class="btn btn-sm btn-outline">Marcar/Desmarcar Todos</button>
+            <button type="button" id="btnAddCategory" class="btn btn-sm btn-outline-primary">+ Nova Categoria</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="categories-toolbar flex-between" style="margin-bottom: 14px;">
+            <span class="text-muted" id="categoriesCountBadge">Carregando itens...</span>
+          </div>
+          <div class="categories-grid" id="categoriesContainer">
+            <!-- Dynamically populated via JS with the 7 categories -->
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 4: Preço e Motorização -->
+      <section class="card">
+        <div class="card-header flex-between">
+          <div>
+            <div class="card-title">
+              <span class="card-step-num">4</span>
+              <h2>Preço e Motorização</h2>
+            </div>
+            <span class="card-desc">Especificação dos motores e valores comerciais da proposta (adicione diferentes opções se necessário)</span>
+          </div>
+          <button type="button" id="btnAddEngineOption" class="btn btn-sm btn-outline-primary">
+            + Adicionar Opção de Motor
+          </button>
+        </div>
+        <div class="card-body">
+          <div id="pricingAndEngineList" class="engine-options-list">
+            <!-- Dynamically populated via JS -->
+          </div>
+        </div>
+      </section>
+
+      <!-- Section 5: Forma de Pagamento & Prazo de Entrega -->
+      <div class="grid-2-cards">
+        <!-- Forma de Pagamento -->
+        <section class="card">
+          <div class="card-header flex-between">
+            <div>
+              <div class="card-title">
+                <span class="card-step-num">5</span>
+                <h2>Forma de Pagamento</h2>
+              </div>
+              <span class="card-desc">Condições e parcelamento acordados</span>
+            </div>
+            <button id="btnAddPaymentTerm" class="btn btn-sm btn-outline-primary">
+              + Adicionar Condição
+            </button>
+          </div>
+          <div class="card-body">
+            <div id="paymentTermsList" class="terms-list">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </section>
+
+        <!-- Prazo de Entrega -->
+        <section class="card">
+          <div class="card-header">
+            <div class="card-title">
+              <span class="card-step-num">6</span>
+              <h2>Prazo de Entrega</h2>
+            </div>
+            <span class="card-desc">Estimativa para fabricação e entrega</span>
+          </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label for="inpDeliveryTime">Prazo de Entrega Estimado</label>
+              <input type="text" id="inpDeliveryTime" class="form-control text-lg" placeholder="ex: 90 dias">
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Section 6: Contato e Validade do Orçamento -->
+      <section class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <span class="card-step-num">7</span>
+            <h2>Contato & Validade do Orçamento</h2>
+          </div>
+          <span class="card-desc">Dados do consultor comercial e condições gerais de validade e entrega</span>
+        </div>
+        <div class="card-body grid-form grid-2">
+          <!-- Contato -->
+          <div class="contact-box">
+            <h3 class="subheading">Dados de Contato</h3>
+            <div class="form-group">
+              <label for="inpContactName">Nome do Consultor / Vendedor</label>
+              <input type="text" id="inpContactName" class="form-control" placeholder="ex: Debora Santos">
+            </div>
+            <div class="form-group">
+              <label for="inpContactPhone">Telefone / WhatsApp</label>
+              <input type="text" id="inpContactPhone" class="form-control" placeholder="ex: (47) 9 9187-9441">
+            </div>
+            <div class="form-group">
+              <label for="inpContactEmail">E-mail Comercial</label>
+              <input type="email" id="inpContactEmail" class="form-control" placeholder="ex: comercial@sednagroup.com.br">
+            </div>
+          </div>
+
+          <!-- Validade & Termos -->
+          <div class="validity-box">
+            <div class="flex-between">
+              <h3 class="subheading">Validade e Local de Entrega</h3>
+              <button id="btnAddValidityTerm" class="btn btn-sm btn-outline-primary">+ Adicionar Termo</button>
+            </div>
+            <div id="validityTermsList" class="terms-list">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Bottom Floating Action Bar -->
+      <div class="bottom-bar">
+        <div class="container flex-between">
+          <div id="saveStatus" class="save-status">
+            <span class="status-dot"></span>
+            <span id="saveStatusText">Pronto para salvar ou visualizar</span>
+          </div>
+          <div class="btn-group">
+            <button id="btnQuickPreview" class="btn btn-secondary">
+              Pré-visualizar Documento &rarr;
+            </button>
+            <button id="btnSaveActiveBottom" class="btn btn-primary">
+              Salvar Alterações
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: LIVE DOCUMENT PREVIEW (Simulação Visual Exata do PDF) -->
+    <div id="tab-preview" class="tab-content">
+      <div class="preview-toolbar flex-between">
+        <div>
+          <h3>Pré-visualização do Pedido / Proposta</h3>
+          <p class="text-muted">Estrutura visual correspondente ao modelo oficial Sedna Sport Fishing</p>
+        </div>
+        <div class="btn-group">
+          <button id="btnPrintPreview" class="btn btn-outline">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+            Imprimir / Salvar PDF
+          </button>
+        </div>
+      </div>
+
+      <!-- Preview Document Container -->
+      <div class="preview-document-wrapper">
+        
+        <!-- PAGE 1: COVER -->
+        <div class="preview-page page-1">
+          <div class="cover-content">
+            <div class="cover-logo-wrapper">
+              <img src="/assets/logo_sedna.png" alt="Sedna" class="cover-sedna-logo">
+            </div>
+            <!-- Foto da Embarcação (quando cadastrada no modelo) -->
+            <div class="cover-boat-photo-wrapper" id="pvCoverBoatPhotoBox" style="display: none;">
+              <img id="pvCoverBoatPhoto" src="" alt="Embarcação" class="cover-boat-photo">
+            </div>
+            <div class="cover-ribbon">
+              <span id="pvDocTitle">PROPOSTA COMERCIAL</span>
+            </div>
+            <div class="cover-footer-info">
+              <p><strong id="pvCoverModelName" style="font-size: 1.4rem; color: #1e3a64;">CC 320</strong> &bull; <span id="pvCoverLine" style="color: #64748b; font-weight: 500;">Sportfishing</span></p>
+              <p id="pvCoverProposalCode" style="font-size: 0.88rem; color: #64748b; margin-top: 4px; letter-spacing: 0.5px;">PROP-2026-001-REV1</p>
+              <p id="pvCoverClient" style="font-size: 1.05rem; margin-top: 8px; font-weight: 600; color: #0f172a;"></p>
+              <p id="pvCoverCommercial" style="font-size: 0.95rem; margin-top: 6px; color: #475569; display: none;"><span style="color: #64748b;">Comercial:</span> <strong id="pvCoverCommercialName" style="color: #0f172a;"></strong></p>
+            </div>
+          </div>
+        </div>
+
+        <!-- PAGE 2: MAIN SPECIFICATIONS & DETAILS -->
+        <div class="preview-page page-2">
+          
+          <!-- Header with Model Title & Revision -->
+          <div class="page2-header flex-between">
+            <div class="page2-brand-area">
+              <h2 class="model-title-fallback" id="pvPage2ModelTitle">CC 320</h2>
+              <span id="pvPage2Subtitle" class="page2-subtitle-tag">SPORTFISHING</span>
+            </div>
+            <div class="page2-meta-area">
+              <div style="text-align: right;">
+                <span id="pvPage2Ref" class="page2-ref-code">PROP-2026-001</span>
+                <span id="pvPage2Rev" class="page2-rev-tag">REV 1</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 1: Características Técnicas -->
+          <div class="doc-section">
+            <div class="doc-bar-title">CARACTERÍSTICAS TÉCNICAS</div>
+            <div class="doc-specs-table" id="pvSpecsContainer">
+              <!-- 3 columns populated via JS -->
+            </div>
+          </div>
+
+          <!-- Section 2: Itens de Série -->
+          <div class="doc-section">
+            <div class="doc-bar-title">ITENS DE SÉRIE</div>
+            <div class="doc-categories-grid" id="pvCategoriesContainer">
+              <!-- 2 columns of categories -->
+            </div>
+          </div>
+
+          <!-- Section 3: Preço e Motorização -->
+          <div class="doc-section">
+            <div class="doc-bar-title">PREÇO E MOTORIZAÇÃO</div>
+            <div id="pvPricingContainer" class="doc-pricing-container">
+              <div class="doc-box-row flex-between">
+                <span id="pvEngineText" class="doc-highlight">2X Mercury 300 HP Gasolina</span>
+                <span id="pvPriceText" class="doc-highlight-price">R$ 1.300.000,00</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section 4: Forma de Pagamento -->
+          <div class="doc-section">
+            <div class="doc-bar-title">FORMA DE PAGAMENTO</div>
+            <div class="doc-box-content" id="pvPaymentTermsContainer">
+              <!-- Terms -->
+            </div>
+          </div>
+
+          <!-- Section 5: Prazo de Entrega -->
+          <div class="doc-section">
+            <div class="doc-bar-title">PRAZO DE ENTREGA</div>
+            <div class="doc-box-content">
+              <span id="pvDeliveryTimeText">90 dias</span>
+            </div>
+          </div>
+
+          <!-- Section 6: Contato e Validade do Orçamento -->
+          <div class="doc-section">
+            <div class="doc-split-bar flex-between">
+              <div class="doc-bar-half">CONTATO</div>
+              <div class="doc-bar-half">VALIDADE DO ORÇAMENTO</div>
+            </div>
+            <div class="doc-split-content grid-2">
+              <div class="doc-contact-info" id="pvContactContainer">
+                <!-- Contact info -->
+              </div>
+              <div class="doc-validity-info" id="pvValidityContainer">
+                <!-- Validity terms -->
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+
+    <!-- TAB 3: JSON -->
+    <div id="tab-json" class="tab-content">
+      <div class="card">
+        <div class="card-header flex-between">
+          <div>
+            <div class="card-title">
+              <h2>Estrutura JSON Completa</h2>
+            </div>
+            <span class="card-desc">Dados estruturados em tempo real, prontos para integração e geração programática do PDF</span>
+          </div>
+          <div class="btn-group">
+            <button id="btnCopyJson" class="btn btn-sm btn-outline">Copiar JSON</button>
+            <button id="btnDownloadJson" class="btn btn-sm btn-secondary">Baixar Arquivo JSON</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <pre class="json-viewer" id="jsonPreviewCode"><code></code></pre>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Modal: Saved Proposals -->
+  <div class="modal-overlay" id="modalSavedProposals">
+    <div class="modal-card">
+      <div class="modal-header flex-between">
+        <h3>Propostas Salvas no Servidor</h3>
+        <button class="modal-close" id="btnCloseSavedModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="savedProposalsList" class="saved-proposals-list">
+          <!-- Populated via API -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Save As -->
+  <div class="modal-overlay" id="modalSaveAs">
+    <div class="modal-card modal-sm">
+      <div class="modal-header flex-between">
+        <h3>Salvar Como Nova Proposta</h3>
+        <button class="modal-close" id="btnCloseSaveAsModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="inpSaveAsName">Nome identificador da proposta / pedido</label>
+          <input type="text" id="inpSaveAsName" class="form-control" placeholder="ex: Proposta CC320 - Cliente João">
+        </div>
+        <div class="modal-actions">
+          <button id="btnConfirmSaveAs" class="btn btn-primary w-full">Salvar Proposta</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Gerenciar Foto do Modelo -->
+  <div class="modal-overlay" id="modalModelPhoto">
+    <div class="modal-card">
+      <div class="modal-header flex-between">
+        <h3>Foto da Embarcação: <span id="photoModalModelTitle" style="color: var(--primary);">CC 320</span></h3>
+        <button class="modal-close" id="btnClosePhotoModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        
+        <!-- Preview da Foto Atual -->
+        <div class="model-photo-preview-container">
+          <img id="modelPhotoPreviewImg" src="" alt="Foto da Embarcação" style="display: none;">
+          <div id="modelPhotoPlaceholder" class="model-photo-placeholder">
+            <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+            <p>Nenhuma foto vinculada a este modelo.</p>
+            <span class="text-muted">Envie um arquivo do seu computador ou informe um link de imagem</span>
+          </div>
+        </div>
+
+        <!-- Opção 1: Upload de Arquivo -->
+        <div class="form-group" style="margin-top: 18px;">
+          <label>1. Enviar Foto do Computador (PNG, JPG, WEBP)</label>
+          <input type="file" id="inpModelPhotoFile" class="form-control" accept="image/*">
+        </div>
+
+        <!-- Opção 2: Link Direto / URL -->
+        <div class="form-group" style="margin-top: 14px;">
+          <label>2. Ou Vincular por Link / URL da Imagem</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="inpModelPhotoUrl" class="form-control" placeholder="https://exemplo.com/foto-barco.jpg">
+            <button type="button" id="btnApplyPhotoUrl" class="btn btn-sm btn-secondary">Testar Link</button>
+          </div>
+        </div>
+
+        <div class="modal-actions flex-between" style="margin-top: 24px; padding-top: 14px; border-top: 1px solid var(--border-light);">
+          <button type="button" id="btnRemoveModelPhoto" class="btn btn-sm btn-outline" style="color: var(--danger); border-color: var(--danger-light);">
+            Remover Foto
+          </button>
+          <button type="button" id="btnSaveModelPhoto" class="btn btn-primary">
+            Salvar Foto no Modelo
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Gerenciar Usuários (Admin) -->
+  <div class="modal-overlay" id="modalManageUsers">
+    <div class="modal-card modal-lg">
+      <div class="modal-header flex-between">
+        <div>
+          <h3>Gerenciamento de Usuários e Permissões</h3>
+          <span class="text-muted" style="font-size: 0.8rem;">Crie novos usuários, altere senhas e configure os acessos comerciais</span>
+        </div>
+        <button class="modal-close" id="btnCloseManageUsers">&times;</button>
+      </div>
+      <div class="modal-body" style="max-height: 75vh; overflow-y: auto;">
+        
+        <!-- Action bar -->
+        <div class="flex-between" style="margin-bottom: 14px;">
+          <span style="font-weight: 700; font-size: 0.92rem; color: var(--primary);">Usuários Cadastrados</span>
+          <button type="button" id="btnToggleAddUserForm" class="btn btn-sm btn-primary">
+            + Cadastrar Novo Usuário
+          </button>
+        </div>
+
+        <!-- Add / Edit User Form Container -->
+        <div id="userFormContainer" class="user-edit-box" style="display: none;">
+          <h4 id="userFormTitle" style="margin-bottom: 12px; font-size: 0.95rem; color: var(--primary-dark); font-weight: 700;">Novo Usuário</h4>
+          <input type="hidden" id="editUserId" value="">
+          
+          <div class="grid-form grid-2">
+            <div class="form-group">
+              <label for="inpUserFullName">Nome Completo *</label>
+              <input type="text" id="inpUserFullName" class="form-control" placeholder="ex: Débora Santos" required>
+            </div>
+            <div class="form-group">
+              <label for="inpUserLogin">Nome de Usuário (Login) *</label>
+              <input type="text" id="inpUserLogin" class="form-control" placeholder="ex: debora" required>
+            </div>
+            <div class="form-group">
+              <label for="inpUserPassword">Senha *</label>
+              <input type="password" id="inpUserPassword" class="form-control" placeholder="Digite uma senha">
+              <small class="text-muted" id="pwdHint" style="display: none; font-size: 0.72rem;">Deixe vazio para manter a senha atual ao editar</small>
+            </div>
+            <div class="form-group">
+              <label for="selUserRolePreset">Perfil / Função Predefinida</label>
+              <select id="selUserRolePreset" class="form-control">
+                <option value="commercial">Comercial (Cria e vê apenas suas propostas)</option>
+                <option value="president">Presidente / Diretoria (Vê todas, cria novas, não edita de outros)</option>
+                <option value="admin">Administrador (Controle e edição irrestrita)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="inpUserPhone">Telefone de Contato (WhatsApp)</label>
+              <input type="text" id="inpUserPhone" class="form-control" placeholder="(47) 9 9999-9999">
+            </div>
+            <div class="form-group">
+              <label for="inpUserEmail">E-mail Comercial</label>
+              <input type="email" id="inpUserEmail" class="form-control" placeholder="nome@sednagroup.com.br">
+            </div>
+          </div>
+
+          <!-- Permissões Detalhadas -->
+          <div class="permissions-card" style="margin-top: 14px; padding: 12px; background: #f8fafc; border-radius: 6px; border: 1px solid var(--border-light);">
+            <div style="font-weight: 700; font-size: 0.8rem; text-transform: uppercase; color: var(--primary-dark); margin-bottom: 8px;">
+              Permissões Detalhadas de Acesso
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">
+                <input type="checkbox" id="chkCanViewAll" style="accent-color: var(--primary); width: 16px; height: 16px;">
+                <span><strong>Visualizar todas as propostas</strong> &mdash; Vê propostas de todos os vendedores (ex: Presidente, Admin)</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">
+                <input type="checkbox" id="chkCanEditAll" style="accent-color: var(--primary); width: 16px; height: 16px;">
+                <span><strong>Editar propostas de outros usuários</strong> &mdash; Permite modificar propostas de outros vendedores (ex: Admin)</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 0.85rem; cursor: pointer;">
+                <input type="checkbox" id="chkCanManageUsers" style="accent-color: var(--primary); width: 16px; height: 16px;">
+                <span><strong>Gerenciar usuários e permissões</strong> &mdash; Acesso a este painel administrativo de usuários (ex: Admin)</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="modal-actions flex-between" style="margin-top: 16px;">
+            <button type="button" id="btnCancelUserForm" class="btn btn-sm btn-secondary">Cancelar</button>
+            <button type="button" id="btnSaveUserForm" class="btn btn-sm btn-primary">Gravar Usuário</button>
+          </div>
+        </div>
+
+        <!-- Users Table -->
+        <div class="users-table-wrapper" style="margin-top: 12px;">
+          <table class="users-table">
+            <thead>
+              <tr>
+                <th>Nome / Login</th>
+                <th>Perfil</th>
+                <th>Permissões</th>
+                <th>Contato</th>
+                <th style="text-align: right;">Ações</th>
+              </tr>
+            </thead>
+            <tbody id="usersTableBody">
+              <!-- Populated via API -->
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Database Backup (MySQL 5.7) Section -->
+        <div class="db-backup-card" style="margin-top: 24px; padding: 16px; background: #f8fafc; border-radius: 8px; border: 1px solid var(--border-light);">
+          <div class="flex-between" style="margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+            <div>
+              <div style="font-weight: 700; font-size: 0.95rem; color: var(--primary-dark); display: flex; align-items: center; gap: 8px;">
+                <span>💾 Backup & Réplica de Segurança (MySQL 5.7)</span>
+                <span id="dbStatusBadge" class="badge-step" style="font-size: 0.72rem; padding: 2px 8px; background: #64748b; color: white;">Verificando...</span>
+              </div>
+              <span class="text-muted" style="font-size: 0.78rem;">
+                O sistema opera 100% via arquivos locais. O MySQL 5.7 atua como backup/réplica para prevenção contra perda de dados.
+              </span>
+            </div>
+            <button type="button" id="btnToggleDbConfig" class="btn btn-sm btn-outline-secondary">
+              Configurar Conexão MySQL
+            </button>
+          </div>
+
+          <!-- Quick Actions Bar -->
+          <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px;">
+            <button type="button" id="btnRunFullBackup" class="btn btn-sm btn-primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+              Fazer Backup Completo para o MySQL Agora
+            </button>
+            <button type="button" id="btnRunRestoreFromDb" class="btn btn-sm btn-outline-danger" title="Lê todos os registros do MySQL e regera os arquivos JSON da pasta data/">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+              Recuperar Arquivos do Banco (Restore)
+            </button>
+            <button type="button" id="btnRefreshDbStatus" class="btn btn-sm btn-secondary">
+              Atualizar Status
+            </button>
+          </div>
+
+          <div id="dbStatsInfo" style="margin-top: 10px; font-size: 0.8rem; color: #475569;">
+            <!-- Populated via API -->
+          </div>
+
+          <!-- Inline DB Config Form (Hidden by default) -->
+          <div id="dbConfigContainer" style="display: none; margin-top: 14px; padding-top: 14px; border-top: 1px solid #cbd5e1;">
+            <h5 style="margin-bottom: 10px; font-size: 0.88rem; color: var(--primary);">Parâmetros de Conexão MySQL 5.7</h5>
+            <div class="grid-form grid-2">
+              <div class="form-group">
+                <label for="inpDbHost">Host / IP do Servidor MySQL</label>
+                <input type="text" id="inpDbHost" class="form-control" placeholder="localhost ou IP do servidor">
+              </div>
+              <div class="form-group">
+                <label for="inpDbPort">Porta</label>
+                <input type="number" id="inpDbPort" class="form-control" placeholder="3306" value="3306">
+              </div>
+              <div class="form-group">
+                <label for="inpDbName">Nome do Banco de Dados</label>
+                <input type="text" id="inpDbName" class="form-control" placeholder="sedna_pedidos">
+              </div>
+              <div class="form-group">
+                <label for="inpDbUser">Usuário do Banco</label>
+                <input type="text" id="inpDbUser" class="form-control" placeholder="root">
+              </div>
+              <div class="form-group">
+                <label for="inpDbPass">Senha</label>
+                <input type="password" id="inpDbPass" class="form-control" placeholder="Deixe em branco se não houver">
+              </div>
+              <div class="form-group" style="display: flex; flex-direction: column; justify-content: flex-end;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 0.85rem;">
+                  <input type="checkbox" id="chkDbEnabled" style="accent-color: var(--primary); width: 16px; height: 16px;">
+                  <span><strong>Ativar Sincronização com MySQL 5.7</strong></span>
+                </label>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px;">
+              <button type="button" id="btnTestDbConn" class="btn btn-sm btn-secondary">Testar Conexão</button>
+              <button type="button" id="btnSaveDbConfig" class="btn btn-sm btn-primary">Salvar e Conectar</button>
+            </div>
+            <div id="dbTestAlert" style="display: none; margin-top: 10px; padding: 8px 12px; border-radius: 4px; font-size: 0.82rem;"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="/js/app.js?v=2.6"></script>
+</body>
+</html>

@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login &middot; Sistema Gerador de Pedidos Sedna</title>
+  <!-- Google Fonts: Barlow & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <style>
+    body.login-page-body {
+      background: radial-gradient(circle at 50% 20%, #1e3a5f 0%, #0f1d30 70%, #070e17 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      margin: 0;
+      color: #0f172a;
+    }
+
+    .login-container-card {
+      background: #ffffff;
+      width: 100%;
+      max-width: 450px;
+      border-radius: 14px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.08);
+      padding: 36px 32px;
+      border-top: 5px solid #2d4f7c;
+      animation: fadeIn 0.25s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .login-brand-header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    .login-brand-logo {
+      height: 52px;
+      object-fit: contain;
+      margin-bottom: 12px;
+    }
+
+    .login-brand-header h1 {
+      font-family: 'Barlow', sans-serif;
+      font-size: 1.55rem;
+      font-weight: 800;
+      color: #1b3558;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+
+    .login-brand-header p {
+      font-size: 0.84rem;
+      color: #64748b;
+    }
+
+    .login-form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+
+    .login-form-group label {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #334155;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .login-form-group input {
+      padding: 11px 14px;
+      border-radius: 6px;
+      border: 1px solid #cbd5e1;
+      font-size: 0.95rem;
+      transition: all 0.15s;
+    }
+
+    .login-form-group input:focus {
+      outline: none;
+      border-color: #0284c7;
+      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.18);
+    }
+
+    .btn-login-submit {
+      width: 100%;
+      padding: 13px;
+      background-color: #2d4f7c;
+      color: #ffffff;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background-color 0.15s, transform 0.1s;
+      margin-top: 6px;
+    }
+
+    .btn-login-submit:hover {
+      background-color: #1b3558;
+    }
+
+    .btn-login-submit:active {
+      transform: scale(0.99);
+    }
+
+    .login-error-alert {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+      padding: 10px 14px;
+      border-radius: 6px;
+      font-size: 0.84rem;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .login-footer-info {
+      text-align: center;
+      margin-top: 22px;
+      font-size: 0.76rem;
+      color: rgba(255, 255, 255, 0.45);
+    }
+  </style>
+</head>
+<body class="login-page-body">
+
+  <div>
+    <div class="login-container-card">
+      <div class="login-brand-header">
+        <img src="/assets/logo_sedna.png" alt="Sedna" class="login-brand-logo" onerror="this.style.display='none'">
+        <h1>GERADOR DE PEDIDOS</h1>
+        <p>Sedna Sport Fishing &middot; Acesso ao Sistema</p>
+      </div>
+
+      <div id="loginErrorAlert" class="login-error-alert"></div>
+
+      <form id="pageLoginForm">
+        <div class="login-form-group">
+          <label for="pageLoginUsername">Nome de Usuário</label>
+          <input type="text" id="pageLoginUsername" placeholder="Digite seu usuário" required autofocus autocomplete="username">
+        </div>
+
+        <div class="login-form-group">
+          <label for="pageLoginPassword">Senha</label>
+          <input type="password" id="pageLoginPassword" placeholder="Digite sua senha" required autocomplete="current-password">
+        </div>
+
+        <button type="submit" id="btnPageSubmit" class="btn-login-submit">
+          Entrar no Sistema &rarr;
+        </button>
+      </form>
+    </div>
+
+    <div class="login-footer-info">
+      Sedna Group &copy; 2026 &middot; Gerador de Propostas Comerciais &middot; Todos os direitos reservados
+    </div>
+  </div>
+
+  <script>
+    // Using sessionStorage so closing browser or restarting PC ends the session
+    const token = sessionStorage.getItem('sedna_token');
+    const pageLoginForm = document.getElementById('pageLoginForm');
+    const inpUser = document.getElementById('pageLoginUsername');
+    const inpPass = document.getElementById('pageLoginPassword');
+    const alertBox = document.getElementById('loginErrorAlert');
+    const btnSubmit = document.getElementById('btnPageSubmit');
+
+    // Show notice if redirected after hard refresh or logout
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('expired') === '1') {
+      alertBox.textContent = 'Sessão reiniciada. Por favor, faça login novamente.';
+      alertBox.style.display = 'block';
+      alertBox.style.backgroundColor = '#fef3c7';
+      alertBox.style.borderColor = '#f59e0b';
+      alertBox.style.color = '#92400e';
+    }
+
+    // If token exists in sessionStorage, verify validity before auto-redirecting
+    if (token) {
+      fetch('/api/auth/me', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      .then(res => {
+        if (res.ok) {
+          window.location.replace('/');
+        } else {
+          sessionStorage.clear();
+          localStorage.removeItem('sedna_token');
+          localStorage.removeItem('sedna_user');
+          localStorage.removeItem('sedna_expires_at');
+        }
+      })
+      .catch(() => {
+        sessionStorage.clear();
+        localStorage.removeItem('sedna_token');
+        localStorage.removeItem('sedna_user');
+      });
+    } else {
+      // Clear legacy localStorage if user opens fresh browser
+      localStorage.removeItem('sedna_token');
+      localStorage.removeItem('sedna_user');
+      localStorage.removeItem('sedna_expires_at');
+    }
+
+    async function executeLogin(username, password) {
+      alertBox.style.display = 'none';
+      if (!username || !password) {
+        alertBox.textContent = 'Por favor preencha o usuário e a senha.';
+        alertBox.style.display = 'block';
+        return;
+      }
+
+      btnSubmit.disabled = true;
+      btnSubmit.textContent = 'Autenticando...';
+
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || 'Credenciais inválidas.');
+        }
+
+        // Store session in sessionStorage (auto-clears on browser close / computer shutdown)
+        sessionStorage.setItem('sedna_token', data.token);
+        sessionStorage.setItem('sedna_user', JSON.stringify(data.user));
+        // Remove legacy localStorage items
+        localStorage.removeItem('sedna_token');
+        localStorage.removeItem('sedna_user');
+        localStorage.removeItem('sedna_expires_at');
+        
+        btnSubmit.textContent = 'Conectado! Redirecionando...';
+        window.location.replace('/');
+      } catch (err) {
+        alertBox.textContent = err.message;
+        alertBox.style.display = 'block';
+        alertBox.style.backgroundColor = '#fef2f2';
+        alertBox.style.borderColor = '#ef4444';
+        alertBox.style.color = '#991b1b';
+        btnSubmit.disabled = false;
+        btnSubmit.textContent = 'Entrar no Sistema \u2192';
+      }
+    }
+
+    pageLoginForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      executeLogin(inpUser.value.trim(), inpPass.value.trim());
+    });
+  </script>
+</body>
+</html>
