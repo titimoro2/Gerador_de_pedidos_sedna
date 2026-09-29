@@ -1,6 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const { rateLimit } = require('express-rate-limit');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
@@ -9,6 +11,19 @@ const db = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Trust reverse proxy (Cloudflare Tunnel)
+app.set('trust proxy', 1);
+
+// Disable server fingerprint
+app.disable('x-powered-by');
+
+// Security HTTP headers
+app.use(helmet({
+  contentSecurityPolicy: false, // Preserves Google Fonts, inline preview & PDF printing
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
 
 // Directories & Files
 const DATA_DIR = path.join(__dirname, 'data');
@@ -405,31 +420,71 @@ if (!fs.existsSync(getModelTemplatePath('CC 320'))) {
   getModelTemplate('CC 320');
 }
 
-// Multer config for file uploads
+// Multer config for file uploads with strict security validation
+const imageFileFilter = (req, file, cb) => {
+  const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.svg'];
+  const ext = path.extname(file.originalname || '').toLowerCase();
+  const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'];
+
+  if (allowedExtensions.includes(ext) && allowedMimes.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error('Formato de arquivo inválido. Apenas imagens (JPG, PNG, WebP, SVG) são permitidas.'));
+  }
+};
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOADS_DIR),
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
+    const ext = path.extname(file.originalname).toLowerCase();
     const uniqueName = `logo_${Date.now()}${ext}`;
     cb(null, uniqueName);
   }
 });
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // Max 10MB
+  fileFilter: imageFileFilter
+});
 
 const modelStorage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, MODEL_UPLOADS_DIR),
   filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
+    const ext = path.extname(file.originalname).toLowerCase();
     const safeModel = (req.params.name || 'model').replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
     const uniqueName = `${safeModel}_${Date.now()}${ext}`;
     cb(null, uniqueName);
   }
 });
-const uploadModelPhoto = multer({ storage: modelStorage });
+const uploadModelPhoto = multer({
+  storage: modelStorage,
+  limits: { fileSize: 15 * 1024 * 1024 }, // Max 15MB
+  fileFilter: imageFileFilter
+});
 
 // Middlewares
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+
+// Rate Limiter: Global API protection (300 requests/minute per IP)
+const globalApiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitas requisições ao servidor. Aguarde um instante e tente novamente.' }
+});
+app.use('/api/', globalApiLimiter);
+
+// Rate Limiter: Anti Brute-Force for Login (10 attempts per 15 minutes per IP)
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Muitas tentativas incorretas de login. Por segurança, aguarde 15 minutos para tentar novamente.' }
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Dedicated Login Page Route
@@ -439,8 +494,8 @@ app.get('/login', (req, res) => {
 
 // ================= AUTH ROUTES =================
 
-// Login
-app.post('/api/auth/login', (req, res) => {
+// Login (protected with anti-brute-force rate limiter)
+app.post('/api/auth/login', loginLimiter, (req, res) => {
   const { username, password } = req.body || {};
   if (!username || !password) {
     return res.status(400).json({ error: 'Usuário e senha são obrigatórios.' });
@@ -1294,6 +1349,19 @@ app.post('/api/upload-logo', authMiddleware, upload.single('logo'), (req, res) =
   }
   const publicUrl = `/assets/uploads/${req.file.filename}`;
   res.json({ message: 'Upload realizado com sucesso!', url: publicUrl });
+});
+
+// Global Error Handler (catches multer errors and other unhandled request errors)
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'O arquivo enviado excede o tamanho máximo permitido.' });
+    }
+    return res.status(400).json({ error: `Erro no upload: ${err.message}` });
+  } else if (err) {
+    return res.status(400).json({ error: err.message || 'Erro no processamento da requisição.' });
+  }
+  next();
 });
 
 // Start Server
