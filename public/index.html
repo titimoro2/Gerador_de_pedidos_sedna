@@ -52,6 +52,10 @@
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
             Usuários
           </button>
+          <button id="btnOpenChangePassword" class="btn btn-sm btn-outline-secondary" title="Alterar Minha Senha">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
+            Senha
+          </button>
           <button id="btnLogout" class="btn btn-sm btn-outline-danger" title="Encerrar Sessão">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
             Sair
@@ -88,10 +92,6 @@
       <button class="tab-btn" data-tab="tab-preview">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
         Pré-Visualização do Pedido (Documento)
-      </button>
-      <button class="tab-btn" data-tab="tab-json">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
-        JSON Estruturado
       </button>
     </div>
 
@@ -490,27 +490,6 @@
       </div>
     </div>
 
-    <!-- TAB 3: JSON -->
-    <div id="tab-json" class="tab-content">
-      <div class="card">
-        <div class="card-header flex-between">
-          <div>
-            <div class="card-title">
-              <h2>Estrutura JSON Completa</h2>
-            </div>
-            <span class="card-desc">Dados estruturados em tempo real, prontos para integração e geração programática do PDF</span>
-          </div>
-          <div class="btn-group">
-            <button id="btnCopyJson" class="btn btn-sm btn-outline">Copiar JSON</button>
-            <button id="btnDownloadJson" class="btn btn-sm btn-secondary">Baixar Arquivo JSON</button>
-          </div>
-        </div>
-        <div class="card-body">
-          <pre class="json-viewer" id="jsonPreviewCode"><code></code></pre>
-        </div>
-      </div>
-    </div>
-
   </main>
 
   <!-- Modal: Saved Proposals -->
@@ -632,6 +611,10 @@
               <label for="inpUserPassword">Senha *</label>
               <input type="password" id="inpUserPassword" class="form-control" placeholder="Digite uma senha">
               <small class="text-muted" id="pwdHint" style="display: none; font-size: 0.72rem;">Deixe vazio para manter a senha atual ao editar</small>
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 0.82rem; margin-top: 6px; cursor: pointer; color: #475569;">
+                <input type="checkbox" id="chkUserMustChangePassword" checked style="accent-color: var(--primary); width: 15px; height: 15px;">
+                <span>Exigir que este usuário troque de senha no próximo login</span>
+              </label>
             </div>
             <div class="form-group">
               <label for="selUserRolePreset">Perfil / Função Predefinida</label>
@@ -771,6 +754,45 @@
           </div>
         </div>
 
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Alterar Senha (Self-service e Primeiro Acesso Obrigatório) -->
+  <div class="modal-overlay" id="modalChangePassword">
+    <div class="modal-card" style="max-width: 440px;">
+      <div class="modal-header flex-between">
+        <div>
+          <h3 id="changePasswordTitle" style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--primary-dark);">Alterar Senha</h3>
+          <span class="card-desc" id="changePasswordDesc" style="font-size: 0.8rem; color: #64748b;">Defina uma nova senha para a sua conta.</span>
+        </div>
+        <button id="btnCloseChangePassword" class="btn-icon" title="Fechar" style="font-size: 1.4rem; background: none; border: none; cursor: pointer; color: #64748b;">&times;</button>
+      </div>
+      <div class="modal-body" style="padding-top: 10px;">
+        <div id="firstAccessBanner" style="display: none; background: #fef3c7; border: 1px solid #f59e0b; color: #92400e; padding: 12px; border-radius: 6px; font-size: 0.84rem; margin-bottom: 14px; line-height: 1.4;">
+          <strong>⚠️ Primeiro Acesso:</strong> Por segurança, você deve definir uma nova senha pessoal antes de continuar utilizando o sistema.
+        </div>
+        
+        <div id="changePasswordAlert" style="display: none; padding: 10px; border-radius: 6px; font-size: 0.84rem; margin-bottom: 12px;"></div>
+
+        <form id="formChangePassword" onsubmit="return false;">
+          <div class="form-group" id="grpCurrentPassword">
+            <label for="inpCurrentPassword" style="font-size: 0.82rem; font-weight: 600;">Senha Atual *</label>
+            <input type="password" id="inpCurrentPassword" class="form-control" placeholder="Digite sua senha atual" autocomplete="current-password">
+          </div>
+          <div class="form-group" style="margin-top: 10px;">
+            <label for="inpNewPassword" style="font-size: 0.82rem; font-weight: 600;">Nova Senha *</label>
+            <input type="password" id="inpNewPassword" class="form-control" placeholder="Mínimo de 4 caracteres" autocomplete="new-password">
+          </div>
+          <div class="form-group" style="margin-top: 10px;">
+            <label for="inpConfirmNewPassword" style="font-size: 0.82rem; font-weight: 600;">Confirmar Nova Senha *</label>
+            <input type="password" id="inpConfirmNewPassword" class="form-control" placeholder="Repita a nova senha" autocomplete="new-password">
+          </div>
+          <div class="modal-actions flex-between" style="margin-top: 20px; display: flex; gap: 8px;">
+            <button type="button" id="btnCancelChangePassword" class="btn btn-secondary">Cancelar</button>
+            <button type="button" id="btnSaveNewPassword" class="btn btn-primary" style="flex: 1;">Salvar Nova Senha</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>

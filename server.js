@@ -208,7 +208,8 @@ function authMiddleware(req, res, next) {
     canEditAll: !!freshUser.canEditAll,
     canManageUsers: !!freshUser.canManageUsers,
     phone: freshUser.phone || '',
-    email: freshUser.email || ''
+    email: freshUser.email || '',
+    mustChangePassword: freshUser.mustChangePassword !== false
   };
   next();
 }
@@ -518,6 +519,7 @@ app.post('/api/auth/login', loginLimiter, (req, res) => {
     canManageUsers: !!user.canManageUsers,
     phone: user.phone || '',
     email: user.email || '',
+    mustChangePassword: user.mustChangePassword !== false,
     createdAt: user.createdAt
   };
 
@@ -540,6 +542,68 @@ app.post('/api/auth/login', loginLimiter, (req, res) => {
 // Current User Profile
 app.get('/api/auth/me', authMiddleware, (req, res) => {
   res.json({ user: req.user });
+});
+
+// Change Password (Self-service & Mandatory first login)
+app.post('/api/auth/change-password', authMiddleware, (req, res) => {
+  const { currentPassword, newPassword, confirmPassword } = req.body || {};
+
+  if (!newPassword || typeof newPassword !== 'string' || !newPassword.trim()) {
+    return res.status(400).json({ error: 'A nova senha não pode ser vazia.' });
+  }
+
+  const cleanNew = newPassword.trim();
+  if (cleanNew.length < 4) {
+    return res.status(400).json({ error: 'A nova senha deve ter no mínimo 4 caracteres.' });
+  }
+
+  if (confirmPassword && confirmPassword.trim() !== cleanNew) {
+    return res.status(400).json({ error: 'A confirmação de senha não confere com a nova senha.' });
+  }
+
+  const users = readJson(USERS_PATH, []);
+  const userIndex = users.findIndex(u => u.id === req.user.id || u.username.toLowerCase() === req.user.username.toLowerCase());
+  if (userIndex === -1) {
+    return res.status(404).json({ error: 'Usuário não encontrado.' });
+  }
+
+  const currentUser = users[userIndex];
+  const isMandatoryFirstAccess = currentUser.mustChangePassword !== false;
+
+  // If user already changed their password before (voluntary change), verify current password
+  if (!isMandatoryFirstAccess || (currentPassword && currentPassword.trim())) {
+    if (!currentPassword || currentUser.password !== currentPassword.trim()) {
+      return res.status(400).json({ error: 'Senha atual incorreta.' });
+    }
+  }
+
+  // Prevent setting the exact same password
+  if (currentUser.password === cleanNew) {
+    return res.status(400).json({ error: 'A nova senha deve ser diferente da senha anterior.' });
+  }
+
+  // Prevent common weak defaults
+  if (['123', 'admin', '123456', 'senha', 'password'].includes(cleanNew.toLowerCase())) {
+    return res.status(400).json({ error: 'Por favor, escolha uma senha mais segura.' });
+  }
+
+  // Update password & clear mandatory change flag
+  currentUser.password = cleanNew;
+  currentUser.mustChangePassword = false;
+  currentUser.passwordChangedAt = new Date().toISOString();
+
+  users[userIndex] = currentUser;
+  writeJson(USERS_PATH, users);
+
+  if (req.token && sessions[req.token]) {
+    sessions[req.token].mustChangePassword = false;
+    saveSessions();
+  }
+
+  res.json({
+    message: 'Senha alterada com sucesso!',
+    mustChangePassword: false
+  });
 });
 
 // Logout
@@ -583,6 +647,7 @@ app.get('/api/users', authMiddleware, (req, res) => {
     canManageUsers: !!u.canManageUsers,
     phone: u.phone || '',
     email: u.email || '',
+    mustChangePassword: u.mustChangePassword !== false,
     createdAt: u.createdAt
   }));
 
@@ -595,7 +660,7 @@ app.post('/api/users', authMiddleware, (req, res) => {
     return res.status(403).json({ error: 'Acesso restrito ao Administrador.' });
   }
 
-  const { username, password, name, role, phone, email, canViewAll, canEditAll, canManageUsers } = req.body || {};
+  const { username, password, name, role, phone, email, canViewAll, canEditAll, canManageUsers, mustChangePassword } = req.body || {};
   if (!username || !password || !name) {
     return res.status(400).json({ error: 'Usuário, senha e nome completo são obrigatórios.' });
   }
@@ -646,6 +711,7 @@ app.post('/api/users', authMiddleware, (req, res) => {
     canManageUsers: finalCanManageUsers,
     phone: (phone || '').trim(),
     email: (email || '').trim(),
+    mustChangePassword: mustChangePassword !== undefined ? !!mustChangePassword : true,
     createdAt: new Date().toISOString()
   };
 
@@ -665,6 +731,7 @@ app.post('/api/users', authMiddleware, (req, res) => {
       canManageUsers: newUser.canManageUsers,
       phone: newUser.phone,
       email: newUser.email,
+      mustChangePassword: newUser.mustChangePassword,
       createdAt: newUser.createdAt
     }
   });
@@ -683,11 +750,21 @@ app.put('/api/users/:id', authMiddleware, (req, res) => {
     return res.status(404).json({ error: 'Usuário não encontrado.' });
   }
 
-  const { name, password, role, phone, email, canViewAll, canEditAll, canManageUsers } = req.body || {};
+  const { name, password, role, phone, email, canViewAll, canEditAll, canManageUsers, mustChangePassword } = req.body || {};
   const current = users[index];
 
   if (name && name.trim()) current.name = name.trim();
-  if (password && password.trim()) current.password = password.trim();
+  if (password && password.trim()) {
+    current.password = password.trim();
+    if (typeof mustChangePassword === 'boolean') {
+      current.mustChangePassword = mustChangePassword;
+    } else {
+      current.mustChangePassword = true;
+    }
+  } else if (typeof mustChangePassword === 'boolean') {
+    current.mustChangePassword = mustChangePassword;
+  }
+
   if (phone !== undefined) current.phone = phone.trim();
   if (email !== undefined) current.email = email.trim();
 
@@ -725,7 +802,8 @@ app.put('/api/users/:id', authMiddleware, (req, res) => {
       canEditAll: current.canEditAll,
       canManageUsers: current.canManageUsers,
       phone: current.phone,
-      email: current.email
+      email: current.email,
+      mustChangePassword: current.mustChangePassword !== false
     }
   });
 });

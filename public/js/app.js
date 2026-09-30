@@ -2262,12 +2262,6 @@ function updateLivePreview() {
   const validity = proposal.contactAndValidity?.validity || [];
   const pvValidity = document.getElementById('pvValidityContainer');
   pvValidity.innerHTML = validity.map(v => `<p>${v}</p>`).join('');
-
-  // JSON Preview
-  const jsonCode = document.getElementById('jsonPreviewCode').querySelector('code');
-  if (jsonCode) {
-    jsonCode.textContent = JSON.stringify(proposal, null, 2);
-  }
 }
 
 // ================= SAVE & RESTORE ACTIONS =================
@@ -2502,7 +2496,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.classList.add('active');
     const tabId = btn.getAttribute('data-tab');
     document.getElementById(tabId).classList.add('active');
-    if (tabId === 'tab-preview' || tabId === 'tab-json') {
+    if (tabId === 'tab-preview') {
       updateLivePreview();
     }
   });
@@ -2510,27 +2504,6 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 
 document.getElementById('btnQuickPreview').addEventListener('click', () => {
   document.querySelector('.tab-btn[data-tab="tab-preview"]').click();
-});
-
-// JSON Tab Actions
-document.getElementById('btnCopyJson').addEventListener('click', (e) => {
-  navigator.clipboard.writeText(JSON.stringify(proposal, null, 2)).then(() => {
-    const btn = e.currentTarget;
-    const origText = btn.innerHTML;
-    btn.innerHTML = `✓ Copiado!`;
-    setTimeout(() => { btn.innerHTML = origText; }, 1800);
-  });
-});
-
-document.getElementById('btnDownloadJson').addEventListener('click', () => {
-  const fileName = `${getProposalFormattedName()}.json`;
-  const blob = new Blob([JSON.stringify(proposal, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName;
-  a.click();
-  URL.revokeObjectURL(url);
 });
 
 // Print Preview with Auto-Revision detection
@@ -2688,6 +2661,13 @@ function setCurrentUser(user) {
   if (btnOpenUserManagement) {
     btnOpenUserManagement.style.display = user.canManageUsers ? 'inline-flex' : 'none';
   }
+
+  // Mandatory first-access password change check
+  if (user.mustChangePassword) {
+    setTimeout(() => {
+      openChangePasswordModal(true);
+    }, 250);
+  }
 }
 
 function handleLogout(callApi = true) {
@@ -2708,6 +2688,162 @@ const btnLogout = document.getElementById('btnLogout');
 if (btnLogout) {
   btnLogout.addEventListener('click', () => {
     handleLogout(true);
+  });
+}
+
+// ================= CHANGE PASSWORD MODAL (SELF-SERVICE & FIRST ACCESS) =================
+const modalChangePassword = document.getElementById('modalChangePassword');
+const btnOpenChangePassword = document.getElementById('btnOpenChangePassword');
+const btnCloseChangePassword = document.getElementById('btnCloseChangePassword');
+const btnCancelChangePassword = document.getElementById('btnCancelChangePassword');
+const btnSaveNewPassword = document.getElementById('btnSaveNewPassword');
+const firstAccessBanner = document.getElementById('firstAccessBanner');
+const changePasswordTitle = document.getElementById('changePasswordTitle');
+const changePasswordDesc = document.getElementById('changePasswordDesc');
+const changePasswordAlert = document.getElementById('changePasswordAlert');
+const grpCurrentPassword = document.getElementById('grpCurrentPassword');
+const inpCurrentPassword = document.getElementById('inpCurrentPassword');
+const inpNewPassword = document.getElementById('inpNewPassword');
+const inpConfirmNewPassword = document.getElementById('inpConfirmNewPassword');
+
+let isMandatoryPasswordChange = false;
+
+function openChangePasswordModal(mandatory = false) {
+  if (!modalChangePassword) return;
+  isMandatoryPasswordChange = !!mandatory;
+
+  // Clear fields and alerts
+  if (inpCurrentPassword) inpCurrentPassword.value = '';
+  if (inpNewPassword) inpNewPassword.value = '';
+  if (inpConfirmNewPassword) inpConfirmNewPassword.value = '';
+  if (changePasswordAlert) {
+    changePasswordAlert.style.display = 'none';
+    changePasswordAlert.textContent = '';
+  }
+
+  if (mandatory) {
+    if (firstAccessBanner) firstAccessBanner.style.display = 'block';
+    if (changePasswordTitle) changePasswordTitle.textContent = 'Primeiro Acesso: Cadastrar Nova Senha';
+    if (changePasswordDesc) changePasswordDesc.textContent = 'Por segurança, você deve definir uma nova senha pessoal antes de continuar.';
+    if (btnCloseChangePassword) btnCloseChangePassword.style.display = 'none';
+    if (btnCancelChangePassword) btnCancelChangePassword.style.display = 'none';
+    if (grpCurrentPassword) grpCurrentPassword.style.display = 'none';
+  } else {
+    if (firstAccessBanner) firstAccessBanner.style.display = 'none';
+    if (changePasswordTitle) changePasswordTitle.textContent = 'Alterar Senha';
+    if (changePasswordDesc) changePasswordDesc.textContent = 'Defina uma nova senha para a sua conta.';
+    if (btnCloseChangePassword) btnCloseChangePassword.style.display = 'inline-block';
+    if (btnCancelChangePassword) btnCancelChangePassword.style.display = 'inline-block';
+    if (grpCurrentPassword) grpCurrentPassword.style.display = 'block';
+  }
+
+  modalChangePassword.classList.add('active');
+  setTimeout(() => {
+    if (mandatory) {
+      if (inpNewPassword) inpNewPassword.focus();
+    } else {
+      if (inpCurrentPassword) inpCurrentPassword.focus();
+    }
+  }, 100);
+}
+
+function closeChangePasswordModal() {
+  if (isMandatoryPasswordChange) return; // Cannot close if mandatory
+  if (modalChangePassword) modalChangePassword.classList.remove('active');
+}
+
+if (btnOpenChangePassword) {
+  btnOpenChangePassword.addEventListener('click', () => openChangePasswordModal(false));
+}
+if (btnCloseChangePassword) {
+  btnCloseChangePassword.addEventListener('click', closeChangePasswordModal);
+}
+if (btnCancelChangePassword) {
+  btnCancelChangePassword.addEventListener('click', closeChangePasswordModal);
+}
+
+// Prevent closing modal when clicking backdrop if mandatory
+if (modalChangePassword) {
+  modalChangePassword.addEventListener('click', (e) => {
+    if (e.target === modalChangePassword && !isMandatoryPasswordChange) {
+      closeChangePasswordModal();
+    }
+  });
+}
+
+if (btnSaveNewPassword) {
+  btnSaveNewPassword.addEventListener('click', async () => {
+    if (changePasswordAlert) changePasswordAlert.style.display = 'none';
+
+    const currentPassword = inpCurrentPassword ? inpCurrentPassword.value.trim() : '';
+    const newPassword = inpNewPassword ? inpNewPassword.value.trim() : '';
+    const confirmPassword = inpConfirmNewPassword ? inpConfirmNewPassword.value.trim() : '';
+
+    if (!isMandatoryPasswordChange && !currentPassword) {
+      if (changePasswordAlert) {
+        changePasswordAlert.textContent = 'Por favor, digite sua senha atual.';
+        changePasswordAlert.style.display = 'block';
+        changePasswordAlert.style.background = '#fef2f2';
+        changePasswordAlert.style.color = '#991b1b';
+      }
+      if (inpCurrentPassword) inpCurrentPassword.focus();
+      return;
+    }
+
+    if (!newPassword || newPassword.length < 4) {
+      if (changePasswordAlert) {
+        changePasswordAlert.textContent = 'A nova senha deve ter no mínimo 4 caracteres.';
+        changePasswordAlert.style.display = 'block';
+        changePasswordAlert.style.background = '#fef2f2';
+        changePasswordAlert.style.color = '#991b1b';
+      }
+      if (inpNewPassword) inpNewPassword.focus();
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      if (changePasswordAlert) {
+        changePasswordAlert.textContent = 'A confirmação de senha não confere com a nova senha.';
+        changePasswordAlert.style.display = 'block';
+        changePasswordAlert.style.background = '#fef2f2';
+        changePasswordAlert.style.color = '#991b1b';
+      }
+      if (inpConfirmNewPassword) inpConfirmNewPassword.focus();
+      return;
+    }
+
+    btnSaveNewPassword.disabled = true;
+    btnSaveNewPassword.textContent = 'Salvando...';
+
+    try {
+      const res = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ currentPassword, newPassword, confirmPassword })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao alterar senha.');
+      }
+
+      if (currentUser) {
+        currentUser.mustChangePassword = false;
+      }
+      isMandatoryPasswordChange = false;
+      modalChangePassword.classList.remove('active');
+      showToast('Senha alterada com sucesso! Bem-vindo(a) ao sistema.');
+    } catch (err) {
+      if (changePasswordAlert) {
+        changePasswordAlert.textContent = err.message;
+        changePasswordAlert.style.display = 'block';
+        changePasswordAlert.style.background = '#fef2f2';
+        changePasswordAlert.style.color = '#991b1b';
+      }
+    } finally {
+      btnSaveNewPassword.disabled = false;
+      btnSaveNewPassword.textContent = 'Salvar Nova Senha';
+    }
   });
 }
 
@@ -2796,6 +2932,8 @@ function openCreateUserForm() {
   chkCanViewAll.checked = false;
   chkCanEditAll.checked = false;
   chkCanManageUsers.checked = false;
+  const chkUserMustChangePassword = document.getElementById('chkUserMustChangePassword');
+  if (chkUserMustChangePassword) chkUserMustChangePassword.checked = true;
   inpUserFullName.focus();
 }
 
@@ -2809,6 +2947,8 @@ function openEditUserForm(u) {
   inpUserPassword.value = '';
   inpUserPassword.required = false;
   if (pwdHint) pwdHint.style.display = 'block';
+  const chkUserMustChangePassword = document.getElementById('chkUserMustChangePassword');
+  if (chkUserMustChangePassword) chkUserMustChangePassword.checked = u.mustChangePassword !== false;
   selUserRolePreset.value = u.role || 'commercial';
   inpUserPhone.value = u.phone || '';
   inpUserEmail.value = u.email || '';
@@ -2843,6 +2983,7 @@ async function loadUsersList() {
       tr.innerHTML = `
         <td>
           <strong>${u.name}</strong>
+          ${u.mustChangePassword ? '<span class="badge-step" style="background:#fef3c7; color:#92400e; font-size:0.68rem; padding:1px 6px; margin-left:6px; border-radius:4px;" title="Usuário deve definir uma nova senha no próximo acesso">Troca Pendente</span>' : ''}
           <div class="text-muted" style="font-size:0.75rem;">@${u.username} ${isCurrentUser ? '<span style="color:var(--primary); font-weight:700;">(você)</span>' : ''}</div>
         </td>
         <td><span class="badge-role ${roleClass}">${u.roleLabel || u.role}</span></td>
@@ -2918,6 +3059,10 @@ if (btnSaveUserForm) {
     };
     if (password) payload.password = password;
     if (!isEdit) payload.username = username;
+    const chkUserMustChangePassword = document.getElementById('chkUserMustChangePassword');
+    if (chkUserMustChangePassword) {
+      payload.mustChangePassword = chkUserMustChangePassword.checked;
+    }
 
     try {
       const url = isEdit ? `/api/users/${editUserId.value}` : '/api/users';
