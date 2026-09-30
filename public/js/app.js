@@ -2787,15 +2787,18 @@ function openChangePasswordModal(mandatory = false) {
   }
 
   if (mandatory) {
-    if (firstAccessBanner) firstAccessBanner.style.display = 'block';
-    if (changePasswordTitle) changePasswordTitle.textContent = 'Primeiro Acesso: Cadastrar Nova Senha';
-    if (changePasswordDesc) changePasswordDesc.textContent = 'Por segurança, você deve definir uma nova senha pessoal antes de continuar.';
+    if (firstAccessBanner) {
+      firstAccessBanner.style.display = 'block';
+      firstAccessBanner.innerHTML = '<strong>⚠️ Troca Obrigatória de Senha:</strong> Sua senha foi redefinida pelo Administrador (ou este é seu primeiro acesso). Por segurança, você deve cadastrar uma nova senha pessoal para continuar.';
+    }
+    if (changePasswordTitle) changePasswordTitle.textContent = 'Definição Obrigatória de Nova Senha';
+    if (changePasswordDesc) changePasswordDesc.textContent = 'Por segurança, você deve cadastrar uma nova senha pessoal antes de acessar o sistema.';
     if (btnCloseChangePassword) btnCloseChangePassword.style.display = 'none';
     if (btnCancelChangePassword) btnCancelChangePassword.style.display = 'none';
     if (grpCurrentPassword) grpCurrentPassword.style.display = 'none';
   } else {
     if (firstAccessBanner) firstAccessBanner.style.display = 'none';
-    if (changePasswordTitle) changePasswordTitle.textContent = 'Alterar Senha';
+    if (changePasswordTitle) changePasswordTitle.textContent = 'Alterar Minha Senha';
     if (changePasswordDesc) changePasswordDesc.textContent = 'Defina uma nova senha para a sua conta.';
     if (btnCloseChangePassword) btnCloseChangePassword.style.display = 'inline-block';
     if (btnCancelChangePassword) btnCancelChangePassword.style.display = 'inline-block';
@@ -2827,7 +2830,7 @@ if (btnCancelChangePassword) {
   btnCancelChangePassword.addEventListener('click', closeChangePasswordModal);
 }
 
-// Prevent closing modal when clicking backdrop if mandatory
+// Prevent closing modal when clicking backdrop or pressing Escape if mandatory
 if (modalChangePassword) {
   modalChangePassword.addEventListener('click', (e) => {
     if (e.target === modalChangePassword && !isMandatoryPasswordChange) {
@@ -2835,6 +2838,13 @@ if (modalChangePassword) {
     }
   });
 }
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && isMandatoryPasswordChange) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+});
 
 if (btnSaveNewPassword) {
   btnSaveNewPassword.addEventListener('click', async () => {
@@ -3014,6 +3024,15 @@ function openEditUserForm(u) {
   if (pwdHint) pwdHint.style.display = 'block';
   const chkUserMustChangePassword = document.getElementById('chkUserMustChangePassword');
   if (chkUserMustChangePassword) chkUserMustChangePassword.checked = u.mustChangePassword !== false;
+
+  // Se o admin preencher uma nova senha para outra conta, ativa a troca obrigatória automaticamente
+  inpUserPassword.oninput = () => {
+    const isOtherAccount = !currentUser || (currentUser.id !== u.id && currentUser.username.toLowerCase() !== u.username.toLowerCase());
+    if (inpUserPassword.value.trim().length > 0 && isOtherAccount && chkUserMustChangePassword) {
+      chkUserMustChangePassword.checked = true;
+    }
+  };
+
   selUserRolePreset.value = u.role || 'commercial';
   inpUserPhone.value = u.phone || '';
   inpUserEmail.value = u.email || '';

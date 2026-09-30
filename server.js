@@ -222,6 +222,17 @@ function authMiddleware(req, res, next) {
     email: freshUser.email || '',
     mustChangePassword: freshUser.mustChangePassword !== false
   };
+
+  // Se o usuário precisa trocar de senha obrigatoriamente, bloqueia ações de escrita fora de /api/auth/
+  if (req.user.mustChangePassword && !req.path.startsWith('/api/auth/')) {
+    if (['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method)) {
+      return res.status(403).json({
+        error: 'Troca de senha obrigatória pendente. Por favor, cadastre sua nova senha pessoal antes de continuar.',
+        mustChangePassword: true
+      });
+    }
+  }
+
   next();
 }
 
@@ -643,6 +654,7 @@ app.post('/api/auth/change-password', authMiddleware, (req, res) => {
 
   users[userIndex] = currentUser;
   writeJson(USERS_PATH, users);
+  db.backupUser(currentUser).catch(() => {});
 
   if (req.token && sessions[req.token]) {
     sessions[req.token].mustChangePassword = false;
@@ -801,14 +813,27 @@ app.put('/api/users/:id', authMiddleware, (req, res) => {
 
   const { name, password, role, phone, email, canViewAll, canEditAll, canManageUsers, mustChangePassword } = req.body || {};
   const current = users[index];
+  const isEditingOtherAccount = current.id !== req.user.id && current.username.toLowerCase() !== req.user.username.toLowerCase();
 
   if (name && name.trim()) current.name = name.trim();
   if (password && password.trim()) {
     current.password = password.trim();
-    if (typeof mustChangePassword === 'boolean') {
-      current.mustChangePassword = mustChangePassword;
-    } else {
+    if (isEditingOtherAccount) {
+      // Regra estrita: Quando o administrador altera a senha de OUTRA conta,
+      // essa conta é 100% OBRIGADA a trocar de senha no próximo login!
       current.mustChangePassword = true;
+      current.passwordResetBy = req.user.username;
+      current.passwordResetAt = new Date().toISOString();
+
+      // Invalida sessões ativas da conta para forçar novo login e troca de senha imediata
+      Object.keys(sessions).forEach(tok => {
+        if (sessions[tok].username && sessions[tok].username.toLowerCase() === current.username.toLowerCase()) {
+          delete sessions[tok];
+        }
+      });
+      saveSessions();
+    } else if (typeof mustChangePassword === 'boolean') {
+      current.mustChangePassword = mustChangePassword;
     }
   } else if (typeof mustChangePassword === 'boolean') {
     current.mustChangePassword = mustChangePassword;
@@ -838,6 +863,7 @@ app.put('/api/users/:id', authMiddleware, (req, res) => {
 
   users[index] = current;
   writeJson(USERS_PATH, users);
+  db.backupUser(current).catch(() => {});
 
   res.json({
     message: `Usuário "${current.name}" atualizado com sucesso!`,
