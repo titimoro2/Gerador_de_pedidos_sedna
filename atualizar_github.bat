@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 > nul
 title Sincronizar com GitHub - Gerador de Pedidos
 echo =======================================================
@@ -35,18 +35,28 @@ set /p msg="Digite a descricao da alteracao (ou aperte ENTER para automatico): "
 if "%msg%"=="" set msg=Atualizacao do sistema em %date% as %time%
 
 echo.
-echo 1. Adicionando arquivos modificados...
-"%GIT_CMD%" add .
+echo 1. Protegendo senhas e credenciais locais...
+"%GIT_CMD%" rm -r --cached "data/backups_locais" >nul 2>&1
+"%GIT_CMD%" rm --cached ".env" >nul 2>&1
+"%GIT_CMD%" rm --cached "data/users.json" >nul 2>&1
+"%GIT_CMD%" rm --cached "data/db-config.json" >nul 2>&1
 
-echo 2. Registrando alteracoes (commit)...
+echo 2. Adicionando arquivos modificados...
+"%GIT_CMD%" add .
+"%GIT_CMD%" rm -r --cached "data/backups_locais" >nul 2>&1
+"%GIT_CMD%" rm --cached ".env" >nul 2>&1
+"%GIT_CMD%" rm --cached "data/users.json" >nul 2>&1
+"%GIT_CMD%" rm --cached "data/db-config.json" >nul 2>&1
+
+echo 3. Registrando alteracoes (commit)...
 "%GIT_CMD%" commit -m "%msg%"
 
-echo 3. Sincronizando versao de revisao...
+echo 4. Sincronizando versao de revisao...
 for /f %%i in ('"%GIT_CMD%" rev-parse --short HEAD') do set HASH=%%i
 node -e "const fs=require('fs'); fs.writeFileSync('version.json', JSON.stringify({ version: '1.0.0', revision: '%HASH%', branch: 'main', repository: 'titimoro2/Gerador_de_pedidos_sedna', updatedAt: new Date().toISOString() }, null, 2));"
 "%GIT_CMD%" commit --amend --no-edit -a
 
-echo 4. Enviando para o GitHub...
+echo 5. Enviando para o GitHub...
 "%GIT_CMD%" push origin main
 
 echo.

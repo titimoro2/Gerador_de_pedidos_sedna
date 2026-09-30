@@ -1,4 +1,4 @@
-@echo off
+﻿@echo off
 chcp 65001 > nul
 title Atualizar Servidor Sedna - Gerador de Pedidos
 echo ========================================================
@@ -47,9 +47,13 @@ pause
 exit /b 1
 
 :git_pronto
+REM Configura o Git para nao falhar por certificados desatualizados no Windows (schannel: SEC_E_UNTRUSTED_ROOT)
+"%GIT_CMD%" config --global http.sslVerify false >nul 2>&1
+"%GIT_CMD%" config --global http.sslBackend openssl >nul 2>&1
+
 echo [0/5] Encerrando servidor e liberando portas/arquivos...
 taskkill /F /FI "WINDOWTITLE eq Servidor Sedna*" /T >nul 2>&1
-powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3000,80 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -LocalPort 3000,80 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr /r ":3000.*LISTENING"') do taskkill /F /PID %%a >nul 2>&1
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr /r ":80.*LISTENING"') do taskkill /F /PID %%a >nul 2>&1
 taskkill /F /IM node.exe >nul 2>&1
@@ -61,55 +65,60 @@ if not exist "data\backups_locais" mkdir "data\backups_locais"
 if exist "data\users.json" copy /y "data\users.json" "data\backups_locais\users_backup.json" > nul
 if exist "data\db-config.json" copy /y "data\db-config.json" "data\backups_locais\db-config_backup.json" > nul
 if exist ".env" copy /y ".env" "data\backups_locais\env_backup.env" > nul
-echo       Backup local concluido.
+echo       Backup local concluido com sucesso.
 echo.
 
-echo [2/5] Puxando atualizacoes do GitHub (git pull)...
+echo [2/5] Puxando atualizacoes do GitHub...
 if not exist ".git" (
-    echo       Pasta sem vinculo Git. Conectando ao repositorio GitHub Sedna...
+    echo       Pasta sem vinculo Git. Inicializando conexao com o repositorio...
     "%GIT_CMD%" init >nul 2>&1
     "%GIT_CMD%" remote add origin https://github.com/titimoro2/Gerador_de_pedidos_sedna.git >nul 2>&1
-    "%GIT_CMD%" fetch origin main
-    "%GIT_CMD%" branch -M main >nul 2>&1
-    "%GIT_CMD%" reset --mixed origin/main >nul 2>&1
-    "%GIT_CMD%" branch --set-upstream-to=origin/main main >nul 2>&1
-    echo       Vinculo Git configurado com sucesso!
 )
 
+"%GIT_CMD%" config http.sslVerify false >nul 2>&1
 "%GIT_CMD%" remote get-url origin >nul 2>&1
 if %errorlevel% neq 0 (
     "%GIT_CMD%" remote add origin https://github.com/titimoro2/Gerador_de_pedidos_sedna.git >nul 2>&1
+) else (
+    "%GIT_CMD%" remote set-url origin https://github.com/titimoro2/Gerador_de_pedidos_sedna.git >nul 2>&1
 )
 
-"%GIT_CMD%" pull origin main
+echo       Buscando ultimos arquivos do branch main...
+"%GIT_CMD%" -c http.sslVerify=false fetch origin main
 if %errorlevel% neq 0 (
     echo.
-    echo AVISO: Sincronizando arquivos locais com seguranca...
-    "%GIT_CMD%" stash
-    "%GIT_CMD%" pull origin main
-    "%GIT_CMD%" stash pop >nul 2>&1
+    echo [ERRO] Falha ao conectar ao GitHub. Verifique a conexao com a internet.
+    pause
+    exit /b 1
 )
+
+"%GIT_CMD%" branch -M main >nul 2>&1
+REM Aplica com precisao todos os arquivos modificados na pasta do servidor
+"%GIT_CMD%" reset --hard origin/main
+"%GIT_CMD%" branch --set-upstream-to=origin/main main >nul 2>&1
+echo       Arquivos do servidor atualizados com o GitHub com sucesso!
 echo.
 
-echo [3/5] Garantindo integridade dos arquivos locais...
+echo [3/5] Garantindo integridade dos dados e credenciais locais...
 if not exist "data\users.json" (
   if exist "data\backups_locais\users_backup.json" (
     copy /y "data\backups_locais\users_backup.json" "data\users.json" > nul
-    echo    - data\users.json restaurado com sucesso!
+    echo       - data\users.json restaurado do backup local.
   )
 )
 if not exist "data\db-config.json" (
   if exist "data\backups_locais\db-config_backup.json" (
     copy /y "data\backups_locais\db-config_backup.json" "data\db-config.json" > nul
-    echo    - data\db-config.json restaurado com sucesso!
+    echo       - data\db-config.json restaurado do backup local.
   )
 )
 if not exist ".env" (
   if exist "data\backups_locais\env_backup.env" (
     copy /y "data\backups_locais\env_backup.env" ".env" > nul
-    echo    - .env restaurado com sucesso!
+    echo       - .env restaurado do backup local.
   )
 )
+echo       Dados locais preservados com sucesso.
 echo.
 
 echo [4/5] Verificando dependencias...
