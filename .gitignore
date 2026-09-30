@@ -13,8 +13,11 @@ package-lock.json
 .env
 data/db-config.json
 
-# Sessões temporárias ativas
+# Sessões temporárias ativas e dados locais de usuários/propostas
 data/sessions.json
+data/users.json
+data/active-proposals/
+*.lnk
 
 # Arquivos de log e temporários do sistema operacional
 *.log
