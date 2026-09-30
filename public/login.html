@@ -162,11 +162,20 @@
     </div>
 
     <div class="login-footer-info">
-      Sedna Group &copy; 2026 &middot; Gerador de Propostas Comerciais &middot; Todos os direitos reservados
+      Sedna Group &copy; 2026 &middot; Gerador de Propostas Comerciais &middot; <span id="loginGitRevision" style="font-family: ui-monospace, monospace; background: rgba(255,255,255,0.12); padding: 2px 7px; border-radius: 4px; color: #cbd5e1;">Rev: c726481</span>
     </div>
   </div>
 
   <script>
+    // Fetch and display current version & git revision
+    fetch('/api/version')
+      .then(r => r.json())
+      .then(d => {
+        const el = document.getElementById('loginGitRevision');
+        if (el && d.revision) el.textContent = `Rev: ${d.revision}`;
+      })
+      .catch(() => {});
+
     // Using sessionStorage so closing browser or restarting PC ends the session
     const token = sessionStorage.getItem('sedna_token');
     const pageLoginForm = document.getElementById('pageLoginForm');

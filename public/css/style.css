@@ -1832,7 +1832,8 @@ body {
   .modal-overlay,
   .toast-container,
   .autosave-indicator,
-  .drag-target-zone {
+  .drag-target-zone,
+  .app-footer {
     display: none !important;
   }
 
@@ -2350,5 +2351,47 @@ body {
   border-radius: 4px;
   font-weight: 600;
 }
+
+/* App Footer & Version Tag */
+.app-footer {
+  margin-top: 48px;
+  padding: 18px 24px;
+  border-top: 1px solid var(--border-light);
+  background: #ffffff;
+  color: #64748b;
+  font-size: 0.82rem;
+}
+
+.app-footer .footer-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.system-version-tag {
+  display: inline-flex;
+  align-items: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 0.76rem;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  padding: 3px 8px;
+  border-radius: 4px;
+  color: #1e3a64;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.system-version-tag:hover {
+  background: #e2e8f0;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
 
 

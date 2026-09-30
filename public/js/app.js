@@ -317,10 +317,32 @@ function hasProposalChangedSinceLastRevision() {
   return currentSnapshot !== proposal._savedRevisionSnapshot;
 }
 
+// Load system version & git revision in footer
+async function loadSystemVersion() {
+  const footerGitRevision = document.getElementById('footerGitRevision');
+  const footerVersionLink = document.getElementById('footerVersionLink');
+  if (!footerGitRevision) return;
+
+  try {
+    const res = await fetch('/api/version');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.revision) {
+        footerGitRevision.textContent = `Rev: ${data.revision}`;
+        if (footerVersionLink && data.commitUrl) {
+          footerVersionLink.href = data.commitUrl;
+          footerVersionLink.title = `Versão ${data.version || '1.0.0'} · Commit ${data.revision} no GitHub`;
+        }
+      }
+    }
+  } catch (e) {}
+}
+
 // ================= INITIAL LOAD =================
 async function init() {
   try {
     setStatus('Carregando dados...', true);
+    loadSystemVersion();
     
     // Load models list
     try {

@@ -493,6 +493,37 @@ app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
+// System Version & Git Revision
+app.get('/api/version', (req, res) => {
+  let revision = 'c726481';
+  let updatedAt = new Date().toISOString();
+
+  // Read version.json
+  const versionPath = path.join(__dirname, 'version.json');
+  if (fs.existsSync(versionPath)) {
+    try {
+      const v = JSON.parse(fs.readFileSync(versionPath, 'utf8'));
+      if (v.revision) revision = v.revision;
+      if (v.updatedAt) updatedAt = v.updatedAt;
+    } catch (e) {}
+  }
+
+  // Try dynamic git rev-parse if git is available
+  try {
+    const { execSync } = require('child_process');
+    const gitRev = execSync('git rev-parse --short HEAD', { timeout: 1000 }).toString().trim();
+    if (gitRev) revision = gitRev;
+  } catch (e) {}
+
+  res.json({
+    version: '1.0.0',
+    revision,
+    repository: 'titimoro2/Gerador_de_pedidos_sedna',
+    commitUrl: `https://github.com/titimoro2/Gerador_de_pedidos_sedna/commit/${revision}`,
+    updatedAt
+  });
+});
+
 // ================= AUTH ROUTES =================
 
 // Login (protected with anti-brute-force rate limiter)
