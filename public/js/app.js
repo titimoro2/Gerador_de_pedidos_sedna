@@ -2541,22 +2541,34 @@ window.addEventListener('click', (e) => {
   if (modalManageUsers && e.target === modalManageUsers) modalManageUsers.classList.remove('active');
 });
 
-// Tabs Switching
-document.querySelectorAll('.tab-btn').forEach(btn => {
+// Tabs Switching (Desktop tabs & Mobile views)
+function switchTab(tabId) {
+  if (!tabId) return;
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('data-tab') === tabId);
+  });
+  document.querySelectorAll('.btn-mobile-view').forEach(b => {
+    b.classList.toggle('active', b.getAttribute('data-tab') === tabId);
+  });
+  document.querySelectorAll('.tab-content').forEach(c => {
+    c.classList.toggle('active', c.id === tabId);
+  });
+  // Auto-scroll to top smoothly
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (tabId === 'tab-preview') {
+    updateLivePreview();
+  }
+}
+
+document.querySelectorAll('.tab-btn, .btn-mobile-view').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    btn.classList.add('active');
     const tabId = btn.getAttribute('data-tab');
-    document.getElementById(tabId).classList.add('active');
-    if (tabId === 'tab-preview') {
-      updateLivePreview();
-    }
+    switchTab(tabId);
   });
 });
 
-document.getElementById('btnQuickPreview').addEventListener('click', () => {
-  document.querySelector('.tab-btn[data-tab="tab-preview"]').click();
+document.getElementById('btnQuickPreview')?.addEventListener('click', () => {
+  switchTab('tab-preview');
 });
 
 // Print Preview with Auto-Revision detection
