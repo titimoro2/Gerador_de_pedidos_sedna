@@ -156,6 +156,17 @@ function getUserActiveProposalPath(username, modelName = null) {
   return path.join(ACTIVE_PROPOSALS_DIR, `active_${safeName}.json`);
 }
 
+function getUserContact(user) {
+  if (!user) return null;
+  const username = typeof user === 'string' ? user : (user.username || '');
+  const fullUser = findUser(username) || user;
+  return {
+    name: fullUser.contact?.name || fullUser.name || '',
+    phone: fullUser.contact?.phone || fullUser.phone || '',
+    email: fullUser.contact?.email || fullUser.email || ''
+  };
+}
+
 function getProposalAuthor(data) {
   if (data && data.author && data.author.username) {
     return data.author;
@@ -301,7 +312,14 @@ function saveModelTemplate(modelName, proposalData) {
     pricingAndEngine: proposalData.pricingAndEngine || {},
     deliveryTime: proposalData.deliveryTime || '',
     paymentTerms: proposalData.paymentTerms || [],
-    contactAndValidity: proposalData.contactAndValidity || {},
+    contactAndValidity: {
+      contact: {
+        name: '',
+        phone: '',
+        email: ''
+      },
+      validity: proposalData.contactAndValidity?.validity || []
+    },
     updatedAt: new Date().toISOString()
   };
 
@@ -908,6 +926,19 @@ app.get('/api/proposal/active', authMiddleware, (req, res) => {
   const author = getProposalAuthor(proposal);
   const isReadOnly = !req.user.canEditAll && (author.username.toLowerCase() !== req.user.username.toLowerCase());
 
+  // If proposal belongs to current user, ensure contact reflects the user's latest standard contact
+  if (!isReadOnly) {
+    const userContact = getUserContact(req.user);
+    if (userContact && (userContact.name || userContact.phone || userContact.email)) {
+      if (!proposal.contactAndValidity) proposal.contactAndValidity = {};
+      proposal.contactAndValidity.contact = {
+        name: userContact.name || proposal.contactAndValidity.contact?.name || '',
+        phone: userContact.phone || proposal.contactAndValidity.contact?.phone || '',
+        email: userContact.email || proposal.contactAndValidity.contact?.email || ''
+      };
+    }
+  }
+
   res.json({
     ...proposal,
     author,
@@ -938,6 +969,59 @@ app.post('/api/proposal/active', authMiddleware, (req, res) => {
   }
 
   proposal.updatedAt = new Date().toISOString();
+
+  // Sync contact info per user: if contact was updated in this boat, update user's profile and all drafts of this user
+  if (proposal.contactAndValidity?.contact) {
+    const rawContact = proposal.contactAndValidity.contact;
+    const contactName = (rawContact.name || '').trim();
+    const contactPhone = (rawContact.phone || '').trim();
+    const contactEmail = (rawContact.email || '').trim();
+
+    if (contactName || contactPhone || contactEmail) {
+      const targetUsername = isAuthor ? req.user.username : (existingAuthor.username || req.user.username);
+      const updatedContact = {
+        name: contactName || req.user.name,
+        phone: contactPhone,
+        email: contactEmail
+      };
+
+      // 1. Update user profile in USERS_PATH & MySQL
+      const users = readJson(USERS_PATH, []);
+      const uIndex = users.findIndex(u => u.username.toLowerCase() === targetUsername.toLowerCase());
+      if (uIndex !== -1) {
+        users[uIndex].contact = { ...updatedContact };
+        if (contactPhone) users[uIndex].phone = contactPhone;
+        if (contactEmail) users[uIndex].email = contactEmail;
+        writeJson(USERS_PATH, users);
+        db.backupUser(users[uIndex]).catch(() => {});
+      }
+
+      // 2. Synchronize all drafts of this user across ALL boats
+      const safeUser = targetUsername.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+      try {
+        if (fs.existsSync(ACTIVE_PROPOSALS_DIR)) {
+          const files = fs.readdirSync(ACTIVE_PROPOSALS_DIR);
+          for (const file of files) {
+            if (file.startsWith(`draft_${safeUser}_`) || file === `active_${safeUser}.json`) {
+              const filePath = path.join(ACTIVE_PROPOSALS_DIR, file);
+              try {
+                const draftData = readJson(filePath);
+                if (draftData) {
+                  if (!draftData.contactAndValidity) draftData.contactAndValidity = {};
+                  draftData.contactAndValidity.contact = { ...updatedContact };
+                  writeJson(filePath, draftData);
+                  const key = file.replace('.json', '');
+                  db.backupActiveProposal(key, targetUsername, draftData.general?.modelName, draftData, file).catch(() => {});
+                }
+              } catch (err) {}
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('Erro ao sincronizar contato nos rascunhos do usuário:', e.message);
+      }
+    }
+  }
   
   // Write to user active proposal
   const userActivePath = getUserActiveProposalPath(req.user.username);
@@ -974,12 +1058,11 @@ app.post('/api/proposal/reset', authMiddleware, (req, res) => {
   const cloned = JSON.parse(JSON.stringify(defaultProp));
   cloned.author = { username: req.user.username, name: req.user.name };
   cloned.updatedAt = new Date().toISOString();
-  if (req.user.phone || req.user.email) {
+  
+  const userContact = getUserContact(req.user);
+  if (userContact) {
     if (!cloned.contactAndValidity) cloned.contactAndValidity = {};
-    if (!cloned.contactAndValidity.contact) cloned.contactAndValidity.contact = {};
-    cloned.contactAndValidity.contact.name = req.user.name;
-    cloned.contactAndValidity.contact.phone = req.user.phone || cloned.contactAndValidity.contact.phone;
-    cloned.contactAndValidity.contact.email = req.user.email || cloned.contactAndValidity.contact.email;
+    cloned.contactAndValidity.contact = { ...userContact };
   }
   const userActivePath = getUserActiveProposalPath(req.user.username);
   writeJson(userActivePath, cloned);
@@ -1218,12 +1301,17 @@ app.get('/api/models/:name/draft-or-template', authMiddleware, (req, res) => {
   }
   const cleanName = modelName.trim().toUpperCase();
   const draftPath = getUserActiveProposalPath(req.user.username, cleanName);
+  const userContact = getUserContact(req.user);
 
   if (fs.existsSync(draftPath)) {
     const draft = readJson(draftPath);
     if (draft && draft.general && draft.general.modelName?.toUpperCase() === cleanName) {
       const author = getProposalAuthor(draft);
       const isReadOnly = !req.user.canEditAll && (author.username.toLowerCase() !== req.user.username.toLowerCase());
+      if (!isReadOnly && userContact && (userContact.name || userContact.phone || userContact.email)) {
+        if (!draft.contactAndValidity) draft.contactAndValidity = {};
+        draft.contactAndValidity.contact = { ...userContact };
+      }
       return res.json({
         isDraft: true,
         proposal: {
@@ -1242,9 +1330,15 @@ app.get('/api/models/:name/draft-or-template', authMiddleware, (req, res) => {
     return res.status(404).json({ error: `Modelo "${cleanName}" não encontrado.` });
   }
 
+  const tmplClone = JSON.parse(JSON.stringify(tmpl));
+  if (userContact && (userContact.name || userContact.phone || userContact.email)) {
+    if (!tmplClone.contactAndValidity) tmplClone.contactAndValidity = {};
+    tmplClone.contactAndValidity.contact = { ...userContact };
+  }
+
   return res.json({
     isDraft: false,
-    template: tmpl
+    template: tmplClone
   });
 });
 

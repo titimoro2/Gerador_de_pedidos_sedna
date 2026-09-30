@@ -665,6 +665,10 @@ async function switchModel(modelName) {
       if (!proposal.general.clientName && carryClientName) {
         proposal.general.clientName = carryClientName;
       }
+      if (carryContact) {
+        if (!proposal.contactAndValidity) proposal.contactAndValidity = {};
+        proposal.contactAndValidity.contact = carryContact;
+      }
       if (!proposal._savedRevisionSnapshot) {
         proposal._savedRevisionSnapshot = getComparableProposalSnapshot(proposal);
       }
@@ -2408,6 +2412,33 @@ document.getElementById('btnConfirmSaveAs').addEventListener('click', async () =
 
 // Saved Proposals Modal
 const modalSavedProposals = document.getElementById('modalSavedProposals');
+// Mobile navigation menu toggle
+const btnNavToggle = document.getElementById('btnNavToggle');
+const navActions = document.getElementById('navActions');
+if (btnNavToggle && navActions) {
+  btnNavToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    btnNavToggle.classList.toggle('active');
+    navActions.classList.toggle('open');
+  });
+
+  // Close mobile menu when clicking any button inside navActions
+  navActions.addEventListener('click', (e) => {
+    if (e.target.closest('button') || e.target.closest('a')) {
+      btnNavToggle.classList.remove('active');
+      navActions.classList.remove('open');
+    }
+  });
+
+  // Close when tapping outside
+  document.addEventListener('click', (e) => {
+    if (!navActions.contains(e.target) && !btnNavToggle.contains(e.target)) {
+      btnNavToggle.classList.remove('active');
+      navActions.classList.remove('open');
+    }
+  });
+}
+
 const savedProposalsList = document.getElementById('savedProposalsList');
 
 document.getElementById('btnSavedProposals').addEventListener('click', async () => {
