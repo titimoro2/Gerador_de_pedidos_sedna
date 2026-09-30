@@ -1,19 +1,23 @@
 @echo off
 chcp 65001 > nul
-title Servidor Sedna - Gerador de Pedidos (Porta 80)
+title Servidor Sedna - Gerador de Pedidos
 echo ========================================================
 echo   Iniciando Servidor Sedna - Gerador de Pedidos
-echo   Porta: 80 (Redirecionamento Externo: 8025)
 echo ========================================================
 echo.
 cd /d "%~dp0"
 
-echo Verificando dependencias...
+echo 1. Verificando e liberando portas do sistema...
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3000,80 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr /r ":3000.*LISTENING"') do taskkill /F /PID %%a >nul 2>&1
+
+echo 2. Verificando dependencias...
 if not exist node_modules (
-  echo Instalando dependencias necessarias...
+  echo    Instalando dependencias necessarias...
   call npm install
 )
 
-echo Iniciando o servidor Node.js...
+echo 3. Iniciando o servidor Node.js...
+echo.
 node server.js
 pause
