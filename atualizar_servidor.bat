@@ -65,6 +65,22 @@ echo       Backup local concluido.
 echo.
 
 echo [2/5] Puxando atualizacoes do GitHub (git pull)...
+if not exist ".git" (
+    echo       Pasta sem vinculo Git. Conectando ao repositorio GitHub Sedna...
+    "%GIT_CMD%" init >nul 2>&1
+    "%GIT_CMD%" remote add origin https://github.com/titimoro2/Gerador_de_pedidos_sedna.git >nul 2>&1
+    "%GIT_CMD%" fetch origin main
+    "%GIT_CMD%" branch -M main >nul 2>&1
+    "%GIT_CMD%" reset --mixed origin/main >nul 2>&1
+    "%GIT_CMD%" branch --set-upstream-to=origin/main main >nul 2>&1
+    echo       Vinculo Git configurado com sucesso!
+)
+
+"%GIT_CMD%" remote get-url origin >nul 2>&1
+if %errorlevel% neq 0 (
+    "%GIT_CMD%" remote add origin https://github.com/titimoro2/Gerador_de_pedidos_sedna.git >nul 2>&1
+)
+
 "%GIT_CMD%" pull origin main
 if %errorlevel% neq 0 (
     echo.
