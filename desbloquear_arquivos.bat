@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 chcp 65001 > nul
 title Desbloquear Arquivos - Gerador de Pedidos Sedna
 echo ========================================================

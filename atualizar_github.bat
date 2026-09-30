@@ -1,4 +1,4 @@
-﻿@echo off
+@echo off
 chcp 65001 > nul
 title Sincronizar com GitHub - Gerador de Pedidos
 echo =======================================================
