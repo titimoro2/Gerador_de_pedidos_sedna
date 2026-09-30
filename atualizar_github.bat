@@ -1,27 +1,53 @@
 @echo off
 chcp 65001 > nul
+title Sincronizar com GitHub - Gerador de Pedidos
 echo =======================================================
 echo    Sincronizando Gerador de Pedidos com o GitHub
 echo =======================================================
 echo.
+cd /d "%~dp0"
+
+REM Adiciona caminhos comuns do Git e Node ao PATH da sessão
+set "PATH=%PATH%;C:\Program Files\Git\cmd;C:\Program Files\Git\bin;C:\Program Files (x86)\Git\cmd;%LOCALAPPDATA%\Programs\Git\cmd;C:\Program Files\nodejs"
+
+REM Localiza o executável do Git
+set "GIT_CMD=git"
+where git >nul 2>&1
+if %errorlevel% neq 0 (
+    if exist "C:\Program Files\Git\cmd\git.exe" (
+        set "GIT_CMD=C:\Program Files\Git\cmd\git.exe"
+    ) else if exist "C:\Program Files\Git\bin\git.exe" (
+        set "GIT_CMD=C:\Program Files\Git\bin\git.exe"
+    ) else if exist "C:\Program Files (x86)\Git\cmd\git.exe" (
+        set "GIT_CMD=C:\Program Files (x86)\Git\cmd\git.exe"
+    ) else if exist "%LOCALAPPDATA%\Programs\Git\cmd\git.exe" (
+        set "GIT_CMD=%LOCALAPPDATA%\Programs\Git\cmd\git.exe"
+    ) else (
+        echo.
+        echo [ERRO] O Git não foi encontrado neste computador!
+        echo Baixe e instale o Git: https://git-scm.com/download/win
+        pause
+        exit /b 1
+    )
+)
 
 set /p msg="Digite a descricao da alteracao (ou aperte ENTER para automatico): "
 if "%msg%"=="" set msg=Atualizacao do sistema em %date% as %time%
 
 echo.
 echo 1. Adicionando arquivos modificados...
-"C:\Program Files\Git\cmd\git.exe" add .
+"%GIT_CMD%" add .
 
 echo 2. Registrando alteracoes (commit)...
-"C:\Program Files\Git\cmd\git.exe" commit -m "%msg%"
+"%GIT_CMD%" commit -m "%msg%"
 
 echo 3. Sincronizando versao de revisao...
-for /f %%i in ('"C:\Program Files\Git\cmd\git.exe" rev-parse --short HEAD') do set HASH=%%i
+for /f %%i in ('"%GIT_CMD%" rev-parse --short HEAD') do set HASH=%%i
 node -e "const fs=require('fs'); fs.writeFileSync('version.json', JSON.stringify({ version: '1.0.0', revision: '%HASH%', branch: 'main', repository: 'titimoro2/Gerador_de_pedidos_sedna', updatedAt: new Date().toISOString() }, null, 2));"
-"C:\Program Files\Git\cmd\git.exe" commit --amend --no-edit -a
+"%GIT_CMD%" commit --amend --no-edit -a
 
 echo 4. Enviando para o GitHub...
-"C:\Program Files\Git\cmd\git.exe" push origin main
+"%GIT_CMD%" push origin main
 
 echo.
 echo =======================================================

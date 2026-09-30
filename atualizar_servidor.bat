@@ -7,6 +7,37 @@ echo ========================================================
 echo.
 cd /d "%~dp0"
 
+REM Adiciona caminhos comuns do Git e Node ao PATH da sessão
+set "PATH=%PATH%;C:\Program Files\Git\cmd;C:\Program Files\Git\bin;C:\Program Files (x86)\Git\cmd;%LOCALAPPDATA%\Programs\Git\cmd;C:\Program Files\nodejs"
+
+REM Localiza o executável do Git
+set "GIT_CMD=git"
+where git >nul 2>&1
+if %errorlevel% neq 0 (
+    if exist "C:\Program Files\Git\cmd\git.exe" (
+        set "GIT_CMD=C:\Program Files\Git\cmd\git.exe"
+    ) else if exist "C:\Program Files\Git\bin\git.exe" (
+        set "GIT_CMD=C:\Program Files\Git\bin\git.exe"
+    ) else if exist "C:\Program Files (x86)\Git\cmd\git.exe" (
+        set "GIT_CMD=C:\Program Files (x86)\Git\cmd\git.exe"
+    ) else if exist "%LOCALAPPDATA%\Programs\Git\cmd\git.exe" (
+        set "GIT_CMD=%LOCALAPPDATA%\Programs\Git\cmd\git.exe"
+    ) else (
+        echo.
+        echo ========================================================
+        echo [ERRO] O Git não foi encontrado neste computador/servidor!
+        echo.
+        echo Para que o servidor consiga puxar as atualizações do GitHub,
+        echo instale o Git para Windows na máquina:
+        echo Download oficial: https://git-scm.com/download/win
+        echo (Ao instalar, mantenha marcada a opção 'Git from the command line').
+        echo ========================================================
+        echo.
+        pause
+        exit /b 1
+    )
+)
+
 echo [0/5] Encerrando servidor e liberando portas/arquivos...
 taskkill /F /FI "WINDOWTITLE eq Servidor Sedna*" /T >nul 2>&1
 powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3000,80 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
@@ -25,14 +56,14 @@ echo       Backup local concluido.
 echo.
 
 echo [2/5] Puxando atualizacoes do GitHub (git pull)...
-git pull origin main
+"%GIT_CMD%" pull origin main
 if %errorlevel% neq 0 (
     echo.
     echo AVISO: O git pull encontrou alteracoes locais.
     echo Sincronizando com seguranca mantendo dados protegidos...
-    git stash
-    git pull origin main
-    git stash pop >nul 2>&1
+    "%GIT_CMD%" stash
+    "%GIT_CMD%" pull origin main
+    "%GIT_CMD%" stash pop >nul 2>&1
 )
 echo.
 
