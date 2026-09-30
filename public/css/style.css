@@ -1886,6 +1886,7 @@ body {
   #tab-form,
   #tab-json,
   .preview-toolbar,
+  .mobile-preview-hint,
   .bottom-bar,
   .readonly-alert-banner,
   .login-overlay,
@@ -1911,6 +1912,14 @@ body {
     padding: 0 !important;
     margin: 0 !important;
     width: 210mm !important;
+  }
+
+  .preview-scroll-viewport {
+    display: block !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 210mm !important;
+    overflow: visible !important;
   }
 
   .preview-document-wrapper {
