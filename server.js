@@ -10,7 +10,7 @@ const crypto = require('crypto');
 const db = require('./db');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 443;
 
 // Trust reverse proxy (Cloudflare Tunnel)
 app.set('trust proxy', 1);
@@ -1597,7 +1597,11 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`=======================================================`);
   console.log(`  Gerador de Pedidos Sedna - Servidor Web Ativo`);
-  console.log(`  Endereço: http://localhost:${PORT}`);
+  console.log(`  Porta: ${PORT}`);
+  console.log(`  Acesso Local: http://localhost:${PORT}`);
+  if (String(PORT) === '443') {
+    console.log(`  Acesso Seguro (Cloudflare / Proxy): https://...`);
+  }
   console.log(`=======================================================`);
 
   // Initialize MySQL 5.7 Backup & Mirroring in background

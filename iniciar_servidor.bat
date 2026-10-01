@@ -7,8 +7,10 @@ echo ========================================================
 echo.
 cd /d "%~dp0"
 
-echo 1. Verificando e liberando portas do sistema...
-powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 3000,80 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+echo 1. Verificando e liberando portas do sistema (443, 80, 3000)...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-NetTCPConnection -LocalPort 443,80,3000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr /r ":443.*LISTENING"') do taskkill /F /PID %%a >nul 2>&1
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr /r ":80.*LISTENING"') do taskkill /F /PID %%a >nul 2>&1
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr /r ":3000.*LISTENING"') do taskkill /F /PID %%a >nul 2>&1
 
 echo 2. Verificando dependencias...

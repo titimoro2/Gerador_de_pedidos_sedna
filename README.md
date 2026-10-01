@@ -9,7 +9,7 @@ Servidor web e sistema de gerenciamento de propostas e pedidos comerciais para e
 Você pode iniciar o servidor de duas maneiras:
 
 1. **Dois cliques no arquivo:**
-   Execute o arquivo [`iniciar_servidor.bat`](file:///c:/Users/Tiago/Downloads/Gerador%20de%20pedido/iniciar_servidor.bat). Ele iniciará o servidor e abrirá o navegador em `http://localhost:3000`.
+   Execute o arquivo [`iniciar_servidor.bat`](file:///c:/Users/Tiago/Downloads/Gerador%20de%20pedido/iniciar_servidor.bat). Ele iniciará o servidor na porta configurada (padrão: 443 para HTTPS / Cloudflare Tunnel).
 
 2. **Via terminal:**
    ```bash
@@ -18,7 +18,7 @@ Você pode iniciar o servidor de duas maneiras:
    npm start
    ```
 
-Acesse no seu navegador: **[http://localhost:3000](http://localhost:3000)**
+Acesse no seu navegador: **[http://localhost:443](http://localhost:443)** (ou via HTTPS pelo seu domínio configurado no Cloudflare)
 
 ---
 
