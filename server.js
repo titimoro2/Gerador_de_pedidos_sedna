@@ -1,4 +1,6 @@
 require('dotenv').config();
+const http = require('http');
+const https = require('https');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -7,10 +9,14 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const crypto = require('crypto');
+const selfsigned = require('selfsigned');
 const db = require('./db');
 
 const app = express();
-const PORT = process.env.PORT || 443;
+
+// Port configurations: HTTP (default 80) and HTTPS (default 443)
+const HTTP_PORT = process.env.HTTP_PORT !== undefined ? parseInt(process.env.HTTP_PORT, 10) : 80;
+const HTTPS_PORT = process.env.HTTPS_PORT !== undefined ? parseInt(process.env.HTTPS_PORT, 10) : (process.env.PORT !== undefined ? parseInt(process.env.PORT, 10) : 443);
 
 // Trust reverse proxy (Cloudflare Tunnel)
 app.set('trust proxy', 1);
@@ -1593,19 +1599,102 @@ app.use((err, req, res, next) => {
   next();
 });
 
-// Start Server
-app.listen(PORT, () => {
-  console.log(`=======================================================`);
-  console.log(`  Gerador de Pedidos Sedna - Servidor Web Ativo`);
-  console.log(`  Porta: ${PORT}`);
-  console.log(`  Acesso Local: http://localhost:${PORT}`);
-  if (String(PORT) === '443') {
-    console.log(`  Acesso Seguro (Cloudflare / Proxy): https://...`);
+// Helper: Load or generate SSL/TLS credentials for HTTPS
+async function getSslCredentials() {
+  const sslDir = path.join(__dirname, 'ssl');
+  const certPath = path.join(sslDir, 'server.crt');
+  const keyPath = path.join(sslDir, 'server.key');
+
+  if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
+    try {
+      const cert = fs.readFileSync(certPath);
+      const key = fs.readFileSync(keyPath);
+      return { cert, key };
+    } catch (e) {
+      console.warn('[SSL] Falha ao ler certificados em ssl/:', e.message);
+    }
   }
+
+  // Auto-generate self-signed SSL certificate so port 443 never throws ERR_SSL_PROTOCOL_ERROR
+  try {
+    if (!fs.existsSync(sslDir)) fs.mkdirSync(sslDir, { recursive: true });
+    console.log('[SSL/TLS] Configurando certificados SSL para HTTPS...');
+    const pems = await selfsigned.generate(
+      [
+        { name: 'commonName', value: 'localhost' },
+        { name: 'organizationName', value: 'Sedna Group' }
+      ],
+      {
+        days: 3650,
+        keySize: 2048,
+        algorithm: 'sha256'
+      }
+    );
+    fs.writeFileSync(keyPath, pems.private, 'utf8');
+    fs.writeFileSync(certPath, pems.cert, 'utf8');
+    console.log('[SSL/TLS] Certificado SSL configurado com sucesso na pasta ssl/');
+    return { cert: pems.cert, key: pems.private };
+  } catch (err) {
+    console.warn('[SSL/TLS] Falha na geração do certificado SSL:', err.message);
+    return null;
+  }
+}
+
+// Start Dual Server (HTTP on Port 80 + HTTPS on Port 443)
+async function startServers() {
+  console.log(`=======================================================`);
+  console.log(`  Gerador de Pedidos Sedna - Inicializando Servidores`);
+  console.log(`=======================================================`);
+
+  // 1. Servidor HTTP (Porta 80)
+  if (HTTP_PORT && HTTP_PORT > 0) {
+    try {
+      const httpServer = http.createServer(app);
+      httpServer.on('error', (err) => {
+        if (err.code === 'EADDRINUSE') {
+          console.warn(`[HTTP Aviso] A porta ${HTTP_PORT} já está em uso por outro serviço.`);
+        } else {
+          console.error(`[HTTP Erro]`, err.message);
+        }
+      });
+      httpServer.listen(HTTP_PORT, () => {
+        console.log(`  ✔ HTTP Ativo na porta ${HTTP_PORT}  -> http://localhost:${HTTP_PORT}`);
+      });
+    } catch (err) {
+      console.error('[HTTP Falha]', err.message);
+    }
+  }
+
+  // 2. Servidor HTTPS (Porta 443)
+  if (HTTPS_PORT && HTTPS_PORT > 0) {
+    try {
+      const sslCreds = await getSslCredentials();
+      if (sslCreds) {
+        const httpsServer = https.createServer(sslCreds, app);
+        httpsServer.on('error', (err) => {
+          if (err.code === 'EADDRINUSE') {
+            console.warn(`[HTTPS Aviso] A porta ${HTTPS_PORT} já está em uso por outro serviço.`);
+          } else {
+            console.error(`[HTTPS Erro]`, err.message);
+          }
+        });
+        httpsServer.listen(HTTPS_PORT, () => {
+          console.log(`  ✔ HTTPS Ativo na porta ${HTTPS_PORT} -> https://localhost:${HTTPS_PORT}`);
+        });
+      } else {
+        console.warn(`[HTTPS Aviso] Não foi possível iniciar HTTPS na porta ${HTTPS_PORT} sem certificados.`);
+      }
+    } catch (err) {
+      console.error('[HTTPS Falha]', err.message);
+    }
+  }
+
   console.log(`=======================================================`);
 
   // Initialize MySQL 5.7 Backup & Mirroring in background
   db.initDb().catch(err => {
     console.warn('[MySQL 5.7 Backup] Inicialização:', err.message);
   });
-});
+}
+
+startServers();

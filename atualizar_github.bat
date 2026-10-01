@@ -35,6 +35,7 @@ if %errorlevel% neq 0 (
 
 echo 1. Protegendo senhas e credenciais locais...
 "%GIT_CMD%" rm -r --cached "data/backups_locais" >nul 2>&1
+"%GIT_CMD%" rm -r --cached "ssl" >nul 2>&1
 "%GIT_CMD%" rm --cached ".env" >nul 2>&1
 "%GIT_CMD%" rm --cached "data/users.json" >nul 2>&1
 "%GIT_CMD%" rm --cached "data/db-config.json" >nul 2>&1
@@ -42,6 +43,7 @@ echo 1. Protegendo senhas e credenciais locais...
 echo 2. Verificando alteracoes locais...
 "%GIT_CMD%" add -A
 "%GIT_CMD%" rm -r --cached "data/backups_locais" >nul 2>&1
+"%GIT_CMD%" rm -r --cached "ssl" >nul 2>&1
 "%GIT_CMD%" rm --cached ".env" >nul 2>&1
 "%GIT_CMD%" rm --cached "data/users.json" >nul 2>&1
 "%GIT_CMD%" rm --cached "data/db-config.json" >nul 2>&1

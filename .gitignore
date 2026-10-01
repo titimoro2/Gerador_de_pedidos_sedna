@@ -17,6 +17,10 @@ data/db-config.json
 data/db-config*.json
 data/backups_locais/
 data/backups/
+ssl/
+*.key
+*.pem
+*.pfx
 
 # Sessões temporárias ativas e dados locais de usuários/propostas
 data/sessions.json
