@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const crypto = require('crypto');
+const os = require('os');
 const selfsigned = require('selfsigned');
 const db = require('./db');
 
@@ -1619,15 +1620,52 @@ async function getSslCredentials() {
   try {
     if (!fs.existsSync(sslDir)) fs.mkdirSync(sslDir, { recursive: true });
     console.log('[SSL/TLS] Configurando certificados SSL para HTTPS...');
+
+    // Collect local IPs and hostnames for Subject Alternative Names (SAN)
+    const hostname = os.hostname() || 'localhost';
+    const altNames = [
+      { type: 2, value: 'localhost' },
+      { type: 2, value: hostname },
+      { type: 7, ip: '127.0.0.1' }
+    ];
+
+    try {
+      const ifaces = os.networkInterfaces();
+      for (const name of Object.keys(ifaces)) {
+        for (const net of ifaces[name]) {
+          if (net.family === 'IPv4' || net.family === 4) {
+            altNames.push({ type: 7, ip: net.address });
+          }
+        }
+      }
+    } catch (e) {}
+
     const pems = await selfsigned.generate(
       [
-        { name: 'commonName', value: 'localhost' },
-        { name: 'organizationName', value: 'Sedna Group' }
+        { name: 'commonName', value: hostname },
+        { name: 'organizationName', value: 'Sedna Group' },
+        { name: 'countryName', value: 'BR' }
       ],
       {
         days: 3650,
         keySize: 2048,
-        algorithm: 'sha256'
+        algorithm: 'sha256',
+        extensions: [
+          {
+            name: 'basicConstraints',
+            cA: true
+          },
+          {
+            name: 'keyUsage',
+            keyCertSign: true,
+            digitalSignature: true,
+            keyEncipherment: true
+          },
+          {
+            name: 'subjectAltName',
+            altNames: altNames
+          }
+        ]
       }
     );
     fs.writeFileSync(keyPath, pems.private, 'utf8');
