@@ -16,7 +16,7 @@ const app = express();
 
 // Port configurations: HTTP (default 80) and HTTPS (default 443)
 const HTTP_PORT = process.env.HTTP_PORT !== undefined ? parseInt(process.env.HTTP_PORT, 10) : 80;
-const HTTPS_PORT = process.env.HTTPS_PORT !== undefined ? parseInt(process.env.HTTPS_PORT, 10) : (process.env.PORT !== undefined ? parseInt(process.env.PORT, 10) : 443);
+const HTTPS_PORT = process.env.HTTPS_PORT !== undefined ? parseInt(process.env.HTTPS_PORT, 10) : (process.env.PORT && process.env.PORT !== '3000' ? parseInt(process.env.PORT, 10) : 443);
 
 // Trust reverse proxy (Cloudflare Tunnel)
 app.set('trust proxy', 1);

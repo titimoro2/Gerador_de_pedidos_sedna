@@ -118,6 +118,9 @@ if not exist ".env" (
   if exist "data\backups_locais\env_backup.env" (
     copy /y "data\backups_locais\env_backup.env" ".env" > nul
     echo       - .env restaurado do backup local.
+  ) else if exist ".env.example" (
+    copy /y ".env.example" ".env" > nul
+    echo       - .env criado a partir de .env.example.
   )
 )
 echo       Dados locais preservados com sucesso.
