@@ -10,36 +10,36 @@ cd /d "%~dp0"
 REM Adiciona caminhos comuns do Git e Node ao PATH da sessao
 set "PATH=%PATH%;C:\Program Files\Git\cmd;C:\Program Files\Git\bin;C:\Program Files (x86)\Git\cmd;%LOCALAPPDATA%\Programs\Git\cmd;C:\Program Files\nodejs"
 
-REM Localiza o executavel do Git
+REM Localiza o executavel do Git sem blocos de parenteses aninhados (evita erro com Program Files (x86))
 set "GIT_CMD=git"
 where git >nul 2>&1
-if %errorlevel% neq 0 (
-    if exist "C:\Program Files\Git\cmd\git.exe" (
-        set "GIT_CMD=C:\Program Files\Git\cmd\git.exe"
-    ) else if exist "C:\Program Files\Git\bin\git.exe" (
-        set "GIT_CMD=C:\Program Files\Git\bin\git.exe"
-    ) else if exist "C:\Program Files (x86)\Git\cmd\git.exe" (
-        set "GIT_CMD=C:\Program Files (x86)\Git\cmd\git.exe"
-    ) else if exist "%LOCALAPPDATA%\Programs\Git\cmd\git.exe" (
-        set "GIT_CMD=%LOCALAPPDATA%\Programs\Git\cmd\git.exe"
-    ) else (
-        echo.
-        echo [ERRO] O Git nao foi encontrado neste computador!
-        echo Baixe e instale o Git: https://git-scm.com/download/win
-        pause
-        exit /b 1
-    )
-)
+if %errorlevel%==0 goto :git_encontrado
 
+if exist "C:\Program Files\Git\cmd\git.exe" set "GIT_CMD=C:\Program Files\Git\cmd\git.exe" & goto :git_encontrado
+if exist "C:\Program Files\Git\bin\git.exe" set "GIT_CMD=C:\Program Files\Git\bin\git.exe" & goto :git_encontrado
+if exist "C:\Program Files (x86)\Git\cmd\git.exe" set "GIT_CMD=C:\Program Files (x86)\Git\cmd\git.exe" & goto :git_encontrado
+if exist "%LOCALAPPDATA%\Programs\Git\cmd\git.exe" set "GIT_CMD=%LOCALAPPDATA%\Programs\Git\cmd\git.exe" & goto :git_encontrado
+
+echo.
+echo [ERRO] O Git nao foi encontrado neste computador!
+echo Baixe e instale o Git: https://git-scm.com/download/win
+pause
+exit /b 1
+
+:git_encontrado
+"%GIT_CMD%" config --global --add safe.directory "*" >nul 2>&1
 "%GIT_CMD%" config http.sslVerify false >nul 2>&1
 
-echo 1. Protegendo senhas e credenciais locais...
+echo 1. Protegendo senhas, sessoes e credenciais locais...
 "%GIT_CMD%" rm -r --cached "data/backups_locais" >nul 2>&1
 "%GIT_CMD%" rm -r --cached "ssl" >nul 2>&1
 "%GIT_CMD%" rm --cached ".env" >nul 2>&1
 "%GIT_CMD%" rm --cached "data/users.json" >nul 2>&1
+"%GIT_CMD%" rm --cached "data/sessions.json" >nul 2>&1
 "%GIT_CMD%" rm --cached "data/db-config.json" >nul 2>&1
 "%GIT_CMD%" rm --cached "data/rh-db-config.json" >nul 2>&1
+"%GIT_CMD%" rm --cached "data/rh-adjustments.json" >nul 2>&1
+"%GIT_CMD%" rm --cached "data/rh-manual-logs.json" >nul 2>&1
 
 echo 2. Verificando alteracoes locais...
 "%GIT_CMD%" add -A
@@ -47,8 +47,11 @@ echo 2. Verificando alteracoes locais...
 "%GIT_CMD%" rm -r --cached "ssl" >nul 2>&1
 "%GIT_CMD%" rm --cached ".env" >nul 2>&1
 "%GIT_CMD%" rm --cached "data/users.json" >nul 2>&1
+"%GIT_CMD%" rm --cached "data/sessions.json" >nul 2>&1
 "%GIT_CMD%" rm --cached "data/db-config.json" >nul 2>&1
 "%GIT_CMD%" rm --cached "data/rh-db-config.json" >nul 2>&1
+"%GIT_CMD%" rm --cached "data/rh-adjustments.json" >nul 2>&1
+"%GIT_CMD%" rm --cached "data/rh-manual-logs.json" >nul 2>&1
 
 REM Verifica se ha arquivos modificados no index para commit
 "%GIT_CMD%" diff --cached --quiet
