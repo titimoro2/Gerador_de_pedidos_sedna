@@ -17,6 +17,7 @@ data/db-config.json
 data/db-config*.json
 data/rh-db-config.json
 data/rh-manual-logs.json
+data/rh-adjustments.json
 data/backups_locais/
 data/backups/
 ssl/

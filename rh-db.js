@@ -17,9 +17,12 @@ const DATA_DIR = path.join(__dirname, 'data');
 const MAIN_DB_CONFIG_FILE = path.join(DATA_DIR, 'db-config.json');
 const RH_CONFIG_FILE = path.join(DATA_DIR, 'rh-db-config.json');
 const RH_MANUAL_LOGS_FILE = path.join(DATA_DIR, 'rh-manual-logs.json');
+const RH_ADJUSTMENTS_FILE = path.join(DATA_DIR, 'rh-adjustments.json');
 
 let mssqlPool = null;
-let mysqlPool = null;
+let mysqlPool = null; // Conexão 1: Leitura Catraca iD Control
+let commercialPool = null; // Conexão 2: Gravação Sistema RH no Banco Comercial (sedna_pedidos)
+let commercialTablesReady = false;
 let lastConnectionError = null;
 let isConnected = false;
 
@@ -109,6 +112,7 @@ function loadRhConfig() {
   }
 
   merged.mainDatabaseName = mainMysql.mainDatabase;
+  merged.mainMysqlEnabled = mainMysql.mainEnabled;
   return merged;
 }
 
@@ -123,6 +127,7 @@ function saveRhConfig(newConfig) {
     }
   };
   delete merged.mainDatabaseName;
+  delete merged.mainMysqlEnabled;
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(RH_CONFIG_FILE, JSON.stringify(merged, null, 2), 'utf-8');
   closePools();
@@ -138,7 +143,117 @@ async function closePools() {
     try { await mysqlPool.end(); } catch (e) {}
     mysqlPool = null;
   }
+  if (commercialPool) {
+    try { await commercialPool.end(); } catch (e) {}
+    commercialPool = null;
+    commercialTablesReady = false;
+  }
   isConnected = false;
+}
+
+// ============================================================================
+// CONEXÃO 2: BANCO DE DADOS DO COMERCIAL (sedna_pedidos) - NOVAS TABELAS DO RH
+// ============================================================================
+async function getCommercialRhPool() {
+  const mainMysql = loadMainMysqlCredentials();
+  const rhCfg = loadRhConfig();
+
+  // Permite usar o MySQL do comercial se DB_ENABLED estiver ativo OU se o banco do RH estiver ativo no MySQL
+  const shouldConnectMysql = mainMysql.mainEnabled || (rhCfg.enabled && rhCfg.dbType === 'mysql');
+  if (!shouldConnectMysql) return null;
+
+  if (commercialPool && commercialTablesReady) {
+    return commercialPool;
+  }
+
+  const host = mainMysql.host || rhCfg.host || 'localhost';
+  const port = parseInt(mainMysql.port || rhCfg.port || 3306, 10);
+  const user = mainMysql.user || rhCfg.user || 'root';
+  const password = mainMysql.password || rhCfg.password || '';
+  const database = mainMysql.mainDatabase || 'sedna_pedidos';
+
+  try {
+    if (!commercialPool) {
+      const rootConn = await mysql.createConnection({
+        host,
+        port,
+        user,
+        password,
+        connectTimeout: 4000
+      });
+      await rootConn.query(`CREATE DATABASE IF NOT EXISTS \`${database}\` DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_unicode_ci`);
+      await rootConn.end();
+
+      commercialPool = mysql.createPool({
+        host,
+        port,
+        user,
+        password,
+        database,
+        waitForConnections: true,
+        connectionLimit: 5,
+        charset: 'utf8mb4',
+        connectTimeout: 4000
+      });
+    }
+
+    if (!commercialTablesReady) {
+      await commercialPool.query(`
+        CREATE TABLE IF NOT EXISTS \`rh_ponto_lancamentos\` (
+          \`id\` VARCHAR(64) NOT NULL,
+          \`action_type\` VARCHAR(32) NOT NULL DEFAULT 'ADD',
+          \`original_log_id\` VARCHAR(128) DEFAULT NULL,
+          \`employee_id\` VARCHAR(64) NOT NULL,
+          \`employee_name\` VARCHAR(150) NOT NULL,
+          \`registration\` VARCHAR(64) DEFAULT NULL,
+          \`department\` VARCHAR(100) DEFAULT NULL,
+          \`log_date\` VARCHAR(10) NOT NULL,
+          \`log_time\` VARCHAR(8) NOT NULL,
+          \`direction\` VARCHAR(16) NOT NULL DEFAULT 'ENTRADA',
+          \`reason_type\` VARCHAR(64) DEFAULT 'Ajuste Manual RH',
+          \`notes\` TEXT DEFAULT NULL,
+          \`updated_by\` VARCHAR(100) DEFAULT NULL,
+          \`data_json\` LONGTEXT DEFAULT NULL,
+          \`updated_at\` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          \`created_at\` DATETIME DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (\`id\`),
+          KEY \`idx_rh_lanc_emp_date\` (\`employee_name\`, \`log_date\`),
+          KEY \`idx_rh_lanc_orig\` (\`original_log_id\`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      `);
+
+      await commercialPool.query(`
+        CREATE TABLE IF NOT EXISTS \`rh_jornada_diaria_ajustes\` (
+          \`id\` VARCHAR(160) NOT NULL,
+          \`employee_id\` VARCHAR(64) NOT NULL,
+          \`employee_name\` VARCHAR(150) NOT NULL,
+          \`registration\` VARCHAR(64) DEFAULT NULL,
+          \`department\` VARCHAR(100) DEFAULT NULL,
+          \`work_date\` VARCHAR(10) NOT NULL,
+          \`adjustment_mode\` VARCHAR(32) NOT NULL DEFAULT 'PUNCHES',
+          \`manual_worked_minutes\` INT DEFAULT 0,
+          \`bonus_minutes\` INT DEFAULT 0,
+          \`custom_expected_minutes\` INT DEFAULT NULL,
+          \`reason_type\` VARCHAR(64) DEFAULT 'Serviço Externo / Viagem',
+          \`notes\` TEXT DEFAULT NULL,
+          \`updated_by\` VARCHAR(100) DEFAULT NULL,
+          \`data_json\` LONGTEXT DEFAULT NULL,
+          \`updated_at\` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          \`created_at\` DATETIME DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (\`id\`),
+          KEY \`idx_rh_adj_date\` (\`work_date\`),
+          KEY \`idx_rh_adj_emp\` (\`employee_name\`)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      `);
+
+      commercialTablesReady = true;
+    }
+
+    return commercialPool;
+  } catch (err) {
+    console.warn('[RH Comercial DB] Aviso ao conectar no banco comercial p/ tabelas RH:', err.message);
+    return null;
+  }
 }
 
 // Conecta ao MySQL ou SQL Server conforme configurado
@@ -636,25 +751,587 @@ function formatTimeHM(dateObj) {
 
 const DAYS_OF_WEEK_PT = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
 
-// Processa todos os registros e gera os 3 relatórios + Consolidado Mensal
+// ============================================================================
+// PERSISTÊNCIA DE LANÇAMENTOS MANUAIS E AJUSTES DE HORAS (MYSQL COMERCIAL + JSON)
+// ============================================================================
+function readLocalAdjustments() {
+  let data = { punchLancamentos: [], dailyAdjustments: {} };
+  if (fs.existsSync(RH_ADJUSTMENTS_FILE)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(RH_ADJUSTMENTS_FILE, 'utf-8'));
+      if (Array.isArray(parsed.punchLancamentos)) data.punchLancamentos = parsed.punchLancamentos;
+      if (parsed.dailyAdjustments && typeof parsed.dailyAdjustments === 'object') data.dailyAdjustments = parsed.dailyAdjustments;
+    } catch (e) {}
+  }
+  return data;
+}
+
+function writeLocalAdjustments(data) {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(RH_ADJUSTMENTS_FILE, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+// Carrega ajustes do arquivo local e sincroniza com as tabelas rh_ponto_lancamentos e rh_jornada_diaria_ajustes no MySQL Comercial
+async function loadAndSyncRhAdjustments() {
+  const local = readLocalAdjustments();
+  const pool = await getCommercialRhPool();
+  if (!pool) {
+    return { ...local, commercialDbConnected: false };
+  }
+
+  try {
+    const [lancRows] = await pool.query('SELECT * FROM `rh_ponto_lancamentos` ORDER BY `log_date` DESC, `log_time` ASC');
+    const [adjRows] = await pool.query('SELECT * FROM `rh_jornada_diaria_ajustes`');
+
+    const lancMap = new Map();
+    local.punchLancamentos.forEach(item => lancMap.set(item.id, item));
+
+    for (const r of lancRows) {
+      let extra = {};
+      try { if (r.data_json) extra = JSON.parse(r.data_json); } catch (e) {}
+      lancMap.set(r.id, {
+        id: r.id,
+        actionType: r.action_type || 'ADD',
+        originalLogId: r.original_log_id || null,
+        employeeId: r.employee_id,
+        employeeName: r.employee_name,
+        registration: r.registration || '',
+        department: r.department || 'Geral',
+        logDate: r.log_date,
+        logTime: r.log_time,
+        direction: r.direction || 'ENTRADA',
+        reasonType: r.reason_type || 'Ajuste Manual RH',
+        notes: r.notes || '',
+        updatedBy: r.updated_by || 'RH',
+        updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+        ...extra
+      });
+    }
+
+    const dailyMap = { ...local.dailyAdjustments };
+    for (const r of adjRows) {
+      let extra = {};
+      try { if (r.data_json) extra = JSON.parse(r.data_json); } catch (e) {}
+      dailyMap[r.id] = {
+        id: r.id,
+        employeeId: r.employee_id,
+        employeeName: r.employee_name,
+        registration: r.registration || '',
+        department: r.department || 'Geral',
+        workDate: r.work_date,
+        adjustmentMode: r.adjustment_mode || 'PUNCHES',
+        manualWorkedMinutes: Number(r.manual_worked_minutes || 0),
+        bonusMinutes: Number(r.bonus_minutes || 0),
+        customExpectedMinutes: r.custom_expected_minutes !== null && r.custom_expected_minutes !== undefined ? Number(r.custom_expected_minutes) : null,
+        reasonType: r.reason_type || 'Serviço Externo / Viagem',
+        notes: r.notes || '',
+        updatedBy: r.updated_by || 'RH',
+        updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString(),
+        ...extra
+      };
+    }
+
+    const merged = {
+      punchLancamentos: Array.from(lancMap.values()),
+      dailyAdjustments: dailyMap
+    };
+    writeLocalAdjustments(merged);
+    return { ...merged, commercialDbConnected: true };
+  } catch (err) {
+    console.warn('[RH Comercial DB] Aviso ao ler tabelas de ajustes do RH:', err.message);
+    return { ...local, commercialDbConnected: false };
+  }
+}
+
+// Gera lista de datas YYYY-MM-DD entre startDate e endDate
+function buildDateRangeList(startDateStr, endDateStr, skipWeekends = false) {
+  const start = (startDateStr || '').trim();
+  const end = (endDateStr || start).trim();
+  if (!start) return [];
+
+  const [sy, sm, sd] = start.split('-').map(Number);
+  const [ey, em, ed] = end.split('-').map(Number);
+  const dtStart = new Date(sy, sm - 1, sd, 12, 0, 0);
+  const dtEnd = new Date(ey, em - 1, ed, 12, 0, 0);
+  if (isNaN(dtStart.getTime()) || isNaN(dtEnd.getTime()) || dtStart > dtEnd) {
+    return [start];
+  }
+
+  const dates = [];
+  const cur = new Date(dtStart);
+  let safety = 0;
+  while (cur <= dtEnd && safety < 366) {
+    safety++;
+    const dow = cur.getDay();
+    if (!skipWeekends || (dow !== 0 && dow !== 6)) {
+      dates.push(formatIsoDate(cur));
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+  return dates;
+}
+
+function normalizeTimeHMS(timeStr) {
+  const clean = String(timeStr || '08:00').trim();
+  if (/^\d{2}:\d{2}:\d{2}$/.test(clean)) return clean;
+  if (/^\d{2}:\d{2}$/.test(clean)) return `${clean}:00`;
+  return '08:00:00';
+}
+
+// Salva batida(s) manual(is), edição de batida da catraca ou exclusão/desconsideração
+async function savePunchLancamentos(payload = {}, userObj = {}) {
+  const local = readLocalAdjustments();
+  const updatedBy = userObj?.name || userObj?.username || 'RH';
+  const actionType = (payload.actionType || 'ADD').toUpperCase(); // 'ADD' | 'EDIT' | 'IGNORE'
+  const employeeName = String(payload.employeeName || '').trim();
+  const employeeId = String(payload.employeeId || employeeName || 'MANUAL').trim();
+  const registration = String(payload.registration || '-').trim();
+  const department = String(payload.department || 'Geral').trim();
+  const reasonType = String(payload.reasonType || 'Ajuste Manual RH').trim();
+  const notes = String(payload.notes || '').trim();
+
+  if (!employeeName) {
+    throw new Error('Informe o nome do funcionário.');
+  }
+
+  const createdOrUpdated = [];
+
+  if (actionType === 'EDIT' || actionType === 'IGNORE') {
+    const originalLogId = String(payload.originalLogId || '').trim();
+    if (!originalLogId) {
+      throw new Error('ID do registro original da catraca não informado.');
+    }
+
+    // Se já for um lançamento manual do RH (começa com LANC-), edita direto o lançamento manual
+    const existingManualIdx = local.punchLancamentos.findIndex(x => x.id === originalLogId);
+    if (existingManualIdx !== -1) {
+      if (actionType === 'IGNORE') {
+        const removed = local.punchLancamentos.splice(existingManualIdx, 1)[0];
+        writeLocalAdjustments(local);
+        const pool = await getCommercialRhPool();
+        if (pool) {
+          await pool.query('DELETE FROM `rh_ponto_lancamentos` WHERE `id` = ?', [removed.id]);
+        }
+        return { deleted: removed.id, items: [] };
+      } else {
+        const item = local.punchLancamentos[existingManualIdx];
+        item.logDate = payload.logDate || item.logDate;
+        item.logTime = normalizeTimeHMS(payload.logTime || item.logTime);
+        item.direction = (payload.direction || item.direction || 'ENTRADA').toUpperCase();
+        item.reasonType = reasonType || item.reasonType;
+        item.notes = notes !== undefined ? notes : item.notes;
+        item.updatedBy = updatedBy;
+        item.updatedAt = new Date().toISOString();
+        createdOrUpdated.push(item);
+      }
+    } else {
+      // É um giro original da catraca iD Control: cria ou atualiza registro de sobreposição (EDIT ou IGNORE)
+      let overrideItem = local.punchLancamentos.find(x => x.originalLogId === originalLogId);
+      if (!overrideItem) {
+        overrideItem = {
+          id: `LANC-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          originalLogId,
+          employeeId,
+          employeeName,
+          registration,
+          department
+        };
+        local.punchLancamentos.push(overrideItem);
+      }
+      overrideItem.actionType = actionType;
+      overrideItem.logDate = payload.logDate || overrideItem.logDate || formatIsoDate(new Date());
+      overrideItem.logTime = normalizeTimeHMS(payload.logTime || overrideItem.logTime || '08:00:00');
+      overrideItem.direction = (payload.direction || overrideItem.direction || 'ENTRADA').toUpperCase();
+      overrideItem.reasonType = reasonType;
+      overrideItem.notes = notes;
+      overrideItem.updatedBy = updatedBy;
+      overrideItem.updatedAt = new Date().toISOString();
+      createdOrUpdated.push(overrideItem);
+    }
+  } else {
+    // actionType === 'ADD' (Pode ser 1 batida ou múltiplas batidas em uma data ou período de datas, ex: Viagem)
+    const dates = buildDateRangeList(
+      payload.startDate || payload.logDate,
+      payload.endDate || payload.startDate || payload.logDate,
+      !!payload.skipWeekends
+    );
+    if (dates.length === 0) {
+      throw new Error('Informe a data do lançamento.');
+    }
+
+    // Lista de horários a adicionar em cada data (ex: [{ time: '07:50', direction: 'ENTRADA' }, ...])
+    const punchesTemplate = Array.isArray(payload.punches) && payload.punches.length > 0
+      ? payload.punches
+      : [{ time: payload.logTime || '08:00', direction: payload.direction || 'ENTRADA' }];
+
+    let counter = 1;
+    for (const dStr of dates) {
+      for (const p of punchesTemplate) {
+        if (!p.time) continue;
+        const item = {
+          id: `LANC-${Date.now()}-${counter++}-${Math.floor(Math.random() * 900 + 100)}`,
+          actionType: 'ADD',
+          originalLogId: null,
+          employeeId,
+          employeeName,
+          registration,
+          department,
+          logDate: dStr,
+          logTime: normalizeTimeHMS(p.time),
+          direction: String(p.direction || 'ENTRADA').toUpperCase(),
+          reasonType,
+          notes,
+          updatedBy,
+          updatedAt: new Date().toISOString()
+        };
+        local.punchLancamentos.push(item);
+        createdOrUpdated.push(item);
+      }
+    }
+  }
+
+  writeLocalAdjustments(local);
+
+  // Grava também no Banco de Dados Comercial (sedna_pedidos -> rh_ponto_lancamentos)
+  const pool = await getCommercialRhPool();
+  if (pool && createdOrUpdated.length > 0) {
+    for (const item of createdOrUpdated) {
+      await pool.query(
+        `INSERT INTO \`rh_ponto_lancamentos\`
+          (\`id\`, \`action_type\`, \`original_log_id\`, \`employee_id\`, \`employee_name\`, \`registration\`, \`department\`, \`log_date\`, \`log_time\`, \`direction\`, \`reason_type\`, \`notes\`, \`updated_by\`, \`data_json\`)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+          \`action_type\` = VALUES(\`action_type\`),
+          \`log_date\` = VALUES(\`log_date\`),
+          \`log_time\` = VALUES(\`log_time\`),
+          \`direction\` = VALUES(\`direction\`),
+          \`reason_type\` = VALUES(\`reason_type\`),
+          \`notes\` = VALUES(\`notes\`),
+          \`updated_by\` = VALUES(\`updated_by\`),
+          \`data_json\` = VALUES(\`data_json\`)`,
+        [
+          item.id,
+          item.actionType,
+          item.originalLogId,
+          item.employeeId,
+          item.employeeName,
+          item.registration,
+          item.department,
+          item.logDate,
+          item.logTime,
+          item.direction,
+          item.reasonType,
+          item.notes,
+          item.updatedBy,
+          JSON.stringify(item)
+        ]
+      );
+    }
+  }
+
+  return { items: createdOrUpdated };
+}
+
+// Remove/reverte um lançamento manual ou restaura uma batida original da catraca que havia sido editada/ignorada
+async function deletePunchLancamento(id) {
+  const local = readLocalAdjustments();
+  const cleanId = String(id || '').trim();
+  local.punchLancamentos = local.punchLancamentos.filter(
+    x => x.id !== cleanId && x.originalLogId !== cleanId
+  );
+  writeLocalAdjustments(local);
+
+  const pool = await getCommercialRhPool();
+  if (pool) {
+    await pool.query(
+      'DELETE FROM `rh_ponto_lancamentos` WHERE `id` = ? OR `original_log_id` = ?',
+      [cleanId, cleanId]
+    );
+  }
+  return { deleted: cleanId };
+}
+
+// Salva ajuste de horas diárias (Viagem, Serviço Externo, Horas Fixas, Horas Extras/Abono, Atestado)
+async function saveDailyAdjustment(payload = {}, userObj = {}) {
+  const local = readLocalAdjustments();
+  const updatedBy = userObj?.name || userObj?.username || 'RH';
+  const employeeName = String(payload.employeeName || '').trim();
+  const employeeId = String(payload.employeeId || employeeName || 'MANUAL').trim();
+  const registration = String(payload.registration || '-').trim();
+  const department = String(payload.department || 'Geral').trim();
+
+  if (!employeeName) {
+    throw new Error('Informe o nome do funcionário.');
+  }
+
+  const dates = buildDateRangeList(
+    payload.startDate || payload.workDate,
+    payload.endDate || payload.startDate || payload.workDate,
+    !!payload.skipWeekends
+  );
+  if (dates.length === 0) {
+    throw new Error('Informe a data ou período para o ajuste de horas.');
+  }
+
+  const adjustmentMode = String(payload.adjustmentMode || 'FIXED_HOURS').toUpperCase(); // 'FIXED_HOURS' | 'BONUS_HOURS' | 'ABONO_FALTA' | 'PUNCHES'
+  const manualWorkedMinutes = parseInt(payload.manualWorkedMinutes || 0, 10);
+  const bonusMinutes = parseInt(payload.bonusMinutes || 0, 10);
+  const customExpectedMinutes = payload.customExpectedMinutes !== undefined && payload.customExpectedMinutes !== null && payload.customExpectedMinutes !== ''
+    ? parseInt(payload.customExpectedMinutes, 10)
+    : null;
+  const reasonType = String(payload.reasonType || 'Viagem a Trabalho').trim();
+  const notes = String(payload.notes || '').trim();
+
+  const savedItems = [];
+  for (const dStr of dates) {
+    const id = `${employeeName}___${dStr}`;
+    const item = {
+      id,
+      employeeId,
+      employeeName,
+      registration,
+      department,
+      workDate: dStr,
+      adjustmentMode,
+      manualWorkedMinutes,
+      bonusMinutes,
+      customExpectedMinutes,
+      reasonType,
+      notes,
+      updatedBy,
+      updatedAt: new Date().toISOString()
+    };
+    local.dailyAdjustments[id] = item;
+    savedItems.push(item);
+  }
+
+  writeLocalAdjustments(local);
+
+  const pool = await getCommercialRhPool();
+  if (pool) {
+    for (const item of savedItems) {
+      await pool.query(
+        `INSERT INTO \`rh_jornada_diaria_ajustes\`
+          (\`id\`, \`employee_id\`, \`employee_name\`, \`registration\`, \`department\`, \`work_date\`, \`adjustment_mode\`, \`manual_worked_minutes\`, \`bonus_minutes\`, \`custom_expected_minutes\`, \`reason_type\`, \`notes\`, \`updated_by\`, \`data_json\`)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+          \`adjustment_mode\` = VALUES(\`adjustment_mode\`),
+          \`manual_worked_minutes\` = VALUES(\`manual_worked_minutes\`),
+          \`bonus_minutes\` = VALUES(\`bonus_minutes\`),
+          \`custom_expected_minutes\` = VALUES(\`custom_expected_minutes\`),
+          \`reason_type\` = VALUES(\`reason_type\`),
+          \`notes\` = VALUES(\`notes\`),
+          \`updated_by\` = VALUES(\`updated_by\`),
+          \`data_json\` = VALUES(\`data_json\`)`,
+        [
+          item.id,
+          item.employeeId,
+          item.employeeName,
+          item.registration,
+          item.department,
+          item.workDate,
+          item.adjustmentMode,
+          item.manualWorkedMinutes,
+          item.bonusMinutes,
+          item.customExpectedMinutes,
+          item.reasonType,
+          item.notes,
+          item.updatedBy,
+          JSON.stringify(item)
+        ]
+      );
+    }
+  }
+
+  return { items: savedItems };
+}
+
+async function deleteDailyAdjustment(id) {
+  const local = readLocalAdjustments();
+  const cleanId = String(id || '').trim();
+  delete local.dailyAdjustments[cleanId];
+  writeLocalAdjustments(local);
+
+  const pool = await getCommercialRhPool();
+  if (pool) {
+    await pool.query('DELETE FROM `rh_jornada_diaria_ajustes` WHERE `id` = ?', [cleanId]);
+  }
+  return { deleted: cleanId };
+}
+
+// Constrói data local a partir de YYYY-MM-DD e HH:MM:SS
+function makeLocalDateFromIsoAndTime(isoDate, timeHMS) {
+  const [y, m, d] = String(isoDate).split('-').map(Number);
+  const [hh, mm, ss] = normalizeTimeHMS(timeHMS).split(':').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, ss || 0);
+}
+
+// Retorna todos os detalhes de batidas (incluindo ignoradas e originais) e ajuste diário de um funcionário em um dia específico
+async function getDayDetails(employeeName, isoDate) {
+  const cfg = loadRhConfig();
+  let baseLogs = [];
+  if (cfg.enabled) {
+    try {
+      baseLogs = await fetchLogsFromDatabase({ startDate: isoDate, endDate: isoDate, employee: employeeName });
+    } catch (e) {
+      baseLogs = getDemoAndManualLogs();
+    }
+  } else {
+    baseLogs = getDemoAndManualLogs();
+  }
+
+  const adjData = await loadAndSyncRhAdjustments();
+  const editOrIgnoreMap = new Map();
+  adjData.punchLancamentos.forEach(l => {
+    if (l.originalLogId) editOrIgnoreMap.set(String(l.originalLogId), l);
+  });
+
+  const dayPasses = [];
+  for (const item of baseLogs) {
+    if (item.employeeName !== employeeName) continue;
+    const itemIsoDate = formatIsoDate(item.timestampObj);
+    const override = editOrIgnoreMap.get(String(item.id));
+    const effectiveDate = (override && override.actionType === 'EDIT' && override.logDate) ? override.logDate : itemIsoDate;
+    if (effectiveDate !== isoDate && itemIsoDate !== isoDate) continue;
+
+    const origTimeHMS = formatTimeHMS(item.timestampObj);
+    const effectiveTimeHMS = (override && override.actionType === 'EDIT' && override.logTime)
+      ? normalizeTimeHMS(override.logTime)
+      : origTimeHMS;
+
+    dayPasses.push({
+      id: item.id,
+      lancamentoId: override ? override.id : null,
+      origin: 'catraca',
+      isIgnored: !!(override && override.actionType === 'IGNORE'),
+      isEdited: !!(override && override.actionType === 'EDIT'),
+      isoDate: effectiveDate,
+      originalTimeHMS: origTimeHMS,
+      timeHMS: effectiveTimeHMS,
+      timeHM: effectiveTimeHMS.slice(0, 5),
+      direction: (override && override.direction) ? override.direction : normalizeDirection(item.rawDirection, dayPasses.length),
+      reasonType: override ? override.reasonType : 'Giro Catraca iD Control',
+      notes: override ? override.notes : '',
+      updatedBy: override ? override.updatedBy : null,
+      deviceName: item.deviceName || 'Catraca iD Control'
+    });
+  }
+
+  // Adicionar as batidas manuais criadas pelo RH para este funcionário e data
+  for (const l of adjData.punchLancamentos) {
+    if (l.actionType === 'ADD' && l.employeeName === employeeName && l.logDate === isoDate) {
+      const tHMS = normalizeTimeHMS(l.logTime);
+      dayPasses.push({
+        id: l.id,
+        lancamentoId: l.id,
+        origin: 'manual_rh',
+        isIgnored: false,
+        isEdited: false,
+        isoDate: l.logDate,
+        originalTimeHMS: tHMS,
+        timeHMS: tHMS,
+        timeHM: tHMS.slice(0, 5),
+        direction: l.direction || 'ENTRADA',
+        reasonType: l.reasonType || 'Ajuste Manual RH',
+        notes: l.notes || '',
+        updatedBy: l.updatedBy || 'RH',
+        deviceName: `Manual RH (${l.reasonType || 'Ajuste'})`
+      });
+    }
+  }
+
+  dayPasses.sort((a, b) => a.timeHMS.localeCompare(b.timeHMS));
+
+  const dayKey = `${employeeName}___${isoDate}`;
+  const dailyAdjustment = adjData.dailyAdjustments[dayKey] || null;
+
+  return {
+    employeeName,
+    isoDate,
+    dateBR: isoDate.split('-').reverse().join('/'),
+    passes: dayPasses,
+    dailyAdjustment
+  };
+}
+
+// Processa todos os registros (Catraca iD Control + Ajustes/Viagens/Serviço Externo no Banco Comercial)
 async function getAttendanceReports(filters = {}) {
   const cfg = loadRhConfig();
-  let allLogs = [];
+  let rawTurnstileLogs = [];
   let dataSource = 'demo';
   let dbWarning = null;
 
   if (cfg.enabled) {
     try {
-      allLogs = await fetchLogsFromDatabase(filters);
+      rawTurnstileLogs = await fetchLogsFromDatabase(filters);
       dataSource = 'database';
     } catch (err) {
       dbWarning = `Não foi possível consultar o banco iD Control (${err.message}). Exibindo dados locais/demonstração.`;
-      allLogs = getDemoAndManualLogs();
+      rawTurnstileLogs = getDemoAndManualLogs();
       dataSource = 'demo_fallback';
     }
   } else {
-    allLogs = getDemoAndManualLogs();
+    rawTurnstileLogs = getDemoAndManualLogs();
     dataSource = 'demo';
+  }
+
+  // Carrega lançamentos manuais, edições e ajustes diários do RH (Conexão 2: Banco Comercial sedna_pedidos + JSON)
+  const adjData = await loadAndSyncRhAdjustments();
+  const overridesMap = new Map();
+  adjData.punchLancamentos.forEach(l => {
+    if (l.originalLogId) {
+      overridesMap.set(String(l.originalLogId), l);
+    }
+  });
+
+  // Mesclar giros da catraca com edições, exclusões (IGNORE) e novas batidas manuais do RH (ADD)
+  const allLogs = [];
+  for (const item of rawTurnstileLogs) {
+    const ov = overridesMap.get(String(item.id));
+    if (ov && ov.actionType === 'IGNORE') {
+      continue; // Batida desconsiderada pelo RH
+    }
+    if (ov && ov.actionType === 'EDIT') {
+      const newDt = makeLocalDateFromIsoAndTime(ov.logDate || formatIsoDate(item.timestampObj), ov.logTime || formatTimeHMS(item.timestampObj));
+      allLogs.push({
+        ...item,
+        timestampObj: newDt,
+        rawDirection: ov.direction || item.rawDirection,
+        isEditedByRh: true,
+        lancamentoId: ov.id,
+        reasonType: ov.reasonType || 'Editado pelo RH',
+        notes: ov.notes || '',
+        updatedBy: ov.updatedBy || 'RH',
+        deviceName: `${item.deviceName || 'Catraca'} (Editado RH: ${ov.reasonType || 'Ajuste'})`
+      });
+    } else {
+      allLogs.push(item);
+    }
+  }
+
+  // Inserir batidas adicionadas manualmente pelo RH (actionType === 'ADD')
+  for (const l of adjData.punchLancamentos) {
+    if (l.actionType === 'ADD') {
+      const dt = makeLocalDateFromIsoAndTime(l.logDate, l.logTime);
+      if (!isNaN(dt.getTime())) {
+        allLogs.push({
+          id: l.id,
+          lancamentoId: l.id,
+          timestampObj: dt,
+          employeeId: l.employeeId || l.employeeName,
+          employeeName: l.employeeName,
+          registration: l.registration || '-',
+          department: l.department || 'Geral',
+          rawDirection: l.direction || 'ENTRADA',
+          isManualRh: true,
+          reasonType: l.reasonType || 'Lançamento Manual RH',
+          notes: l.notes || '',
+          updatedBy: l.updatedBy || 'RH',
+          deviceName: `Manual RH · ${l.reasonType || 'Ajuste'}`,
+          source: 'manual_rh'
+        });
+      }
+    }
   }
 
   // Ordenar todos os registros cronologicamente (mais antigo -> mais recente) para o pareamento correto
@@ -676,6 +1353,19 @@ async function getAttendanceReports(filters = {}) {
     if (log.department) departmentsSet.add(log.department);
   });
 
+  // Incluir também funcionários que possuem ajustes diários (ex: Viagem a semana toda sem giro na catraca)
+  Object.values(adjData.dailyAdjustments || {}).forEach(adj => {
+    if (adj.employeeName && !employeesSet.has(adj.employeeName)) {
+      employeesSet.set(adj.employeeName, {
+        id: adj.employeeId || adj.employeeName,
+        name: adj.employeeName,
+        registration: adj.registration || '-',
+        department: adj.department || 'Geral'
+      });
+    }
+    if (adj.department) departmentsSet.add(adj.department);
+  });
+
   // Filtros recebidos
   const startDate = (filters.startDate || '').trim(); // YYYY-MM-DD
   const endDate = (filters.endDate || '').trim();     // YYYY-MM-DD
@@ -686,12 +1376,29 @@ async function getAttendanceReports(filters = {}) {
   const departmentQuery = (filters.department || '').trim().toLowerCase();
   const directionFilter = (filters.direction || '').trim().toUpperCase();
 
-  // Agrupar giros por (Funcionário + Data) antes de aplicar filtro de hora fina,
-  // mas respeitando filtro de data, funcionário e departamento
+  const matchesEmpAndDeptFilter = (empId, empName, reg, dept, isoDate) => {
+    if (startDate && isoDate < startDate) return false;
+    if (endDate && isoDate > endDate) return false;
+    if (employeeIdFilter) {
+      const mId = String(empId).toLowerCase() === employeeIdFilter;
+      const mName = String(empName).toLowerCase() === employeeIdFilter;
+      if (!mId && !mName) return false;
+    }
+    if (employeeQuery) {
+      const mName = String(empName).toLowerCase().includes(employeeQuery);
+      const mReg = String(reg || '').toLowerCase().includes(employeeQuery);
+      const mId = String(empId).toLowerCase() === employeeQuery;
+      if (!mName && !mReg && !mId) return false;
+    }
+    if (departmentQuery && String(dept || '').toLowerCase() !== departmentQuery) {
+      return false;
+    }
+    return true;
+  };
+
+  // Agrupar giros por (Funcionário + Data)
   const groupedByEmpDay = new Map();
   const filteredRawLogs = [];
-
-  // Para atribuir direção correta giro a giro dentro do dia de cada funcionário
   const dayPassCounters = new Map();
 
   for (const item of allLogs) {
@@ -700,27 +1407,7 @@ async function getAttendanceReports(filters = {}) {
     const timeHM = formatTimeHM(dt);
     const timeHMS = formatTimeHMS(dt);
 
-    // Filtro de Data (Dia / Mês / Período)
-    if (startDate && isoDate < startDate) continue;
-    if (endDate && isoDate > endDate) continue;
-
-    // Filtro por ID exato do Funcionário (Select)
-    if (employeeIdFilter) {
-      const matchId = String(item.employeeId).toLowerCase() === employeeIdFilter;
-      const matchName = item.employeeName.toLowerCase() === employeeIdFilter;
-      if (!matchId && !matchName) continue;
-    }
-
-    // Filtro de Funcionário (Busca por Nome ou Matrícula)
-    if (employeeQuery) {
-      const matchName = item.employeeName.toLowerCase().includes(employeeQuery);
-      const matchReg = (item.registration || '').toLowerCase().includes(employeeQuery);
-      const matchId = String(item.employeeId).toLowerCase() === employeeQuery;
-      if (!matchName && !matchReg && !matchId) continue;
-    }
-
-    // Filtro de Departamento
-    if (departmentQuery && (item.department || '').toLowerCase() !== departmentQuery) {
+    if (!matchesEmpAndDeptFilter(item.employeeId, item.employeeName, item.registration, item.department, isoDate)) {
       continue;
     }
 
@@ -728,14 +1415,16 @@ async function getAttendanceReports(filters = {}) {
     const currentIndexInDay = dayPassCounters.get(empDayKey) || 0;
     dayPassCounters.set(empDayKey, currentIndexInDay + 1);
 
-    const direction = normalizeDirection(item.rawDirection, currentIndexInDay);
+    const direction = (item.isManualRh || item.isEditedByRh) && item.rawDirection
+      ? normalizeDirection(item.rawDirection, currentIndexInDay)
+      : normalizeDirection(item.rawDirection, currentIndexInDay);
 
-    // Filtro de Hora (HH:MM)
     const matchesTimeFilter = (!startTime || timeHM >= startTime) && (!endTime || timeHM <= endTime);
     const matchesDirectionFilter = (!directionFilter || directionFilter === 'ALL' || direction === directionFilter);
 
     const enrichedLog = {
       id: item.id,
+      lancamentoId: item.lancamentoId || null,
       isoDate,
       dateBR: formatDateBR(dt),
       dayOfWeek: DAYS_OF_WEEK_PT[dt.getDay()],
@@ -747,14 +1436,18 @@ async function getAttendanceReports(filters = {}) {
       registration: item.registration || '-',
       department: item.department || 'Geral',
       direction,
-      deviceName: item.deviceName || 'Catraca iD Control'
+      deviceName: item.deviceName || 'Catraca iD Control',
+      isManualRh: !!item.isManualRh,
+      isEditedByRh: !!item.isEditedByRh,
+      reasonType: item.reasonType || null,
+      notes: item.notes || '',
+      updatedBy: item.updatedBy || null
     };
 
     if (matchesTimeFilter && matchesDirectionFilter) {
       filteredRawLogs.push(enrichedLog);
     }
 
-    // Para o cálculo diário/mensal de horas, incluímos os giros que passam no filtro de horário (se especificado)
     if (matchesTimeFilter) {
       if (!groupedByEmpDay.has(empDayKey)) {
         groupedByEmpDay.set(empDayKey, {
@@ -772,6 +1465,33 @@ async function getAttendanceReports(filters = {}) {
     }
   }
 
+  // Garantir que dias com Ajuste Diário (ex: Viagem a Trabalho / Serviço Externo / Abono sem batida na catraca) também entrem nos relatórios
+  for (const adj of Object.values(adjData.dailyAdjustments || {})) {
+    const empInfo = employeesSet.get(adj.employeeName) || {};
+    const empId = adj.employeeId || empInfo.id || adj.employeeName;
+    const reg = (adj.registration && adj.registration !== '-') ? adj.registration : (empInfo.registration || '-');
+    const dept = (adj.department && adj.department !== 'Geral') ? adj.department : (empInfo.department || 'Geral');
+
+    if (!matchesEmpAndDeptFilter(empId, adj.employeeName, reg, dept, adj.workDate)) {
+      continue;
+    }
+
+    const empDayKey = `${adj.employeeName}___${adj.workDate}`;
+    if (!groupedByEmpDay.has(empDayKey)) {
+      const dt = makeLocalDateFromIsoAndTime(adj.workDate, '08:00:00');
+      groupedByEmpDay.set(empDayKey, {
+        isoDate: adj.workDate,
+        dateBR: formatDateBR(dt),
+        dayOfWeek: DAYS_OF_WEEK_PT[dt.getDay()],
+        employeeId: empId,
+        employeeName: adj.employeeName,
+        registration: reg,
+        department: dept,
+        passes: []
+      });
+    }
+  }
+
   const workdayMinutes = parseInt(filters.workdayMinutes || cfg.workdayMinutes || 528, 10);
   const defaultLunchMinutes = parseInt(filters.defaultLunchMinutes !== undefined ? filters.defaultLunchMinutes : (cfg.defaultLunchMinutes ?? 60), 10);
   const autoDeductAfter = parseInt(cfg.autoDeductLunchAfterMinutes || 360, 10);
@@ -779,9 +1499,10 @@ async function getAttendanceReports(filters = {}) {
   const dailyRecords = [];
   const monthlyMap = new Map();
 
-  for (const group of groupedByEmpDay.values()) {
+  for (const [empDayKey, group] of groupedByEmpDay.entries()) {
     const passes = group.passes;
-    if (passes.length === 0) continue;
+    const dayAdj = adjData.dailyAdjustments[empDayKey] || null;
+    if (passes.length === 0 && !dayAdj) continue;
 
     // ---------------------------------------------------------
     // CÁLCULO 1: RELATÓRIO PAREADO (ENTRADA -> SAÍDA GIRO A GIRO)
@@ -805,10 +1526,10 @@ async function getAttendanceReports(filters = {}) {
           outTimeFull: pOut.timeHMS,
           durationMinutes: Math.round(diffMin),
           durationFormatted: formatMinutesToHours(diffMin),
+          isManualOrEdited: !!(pIn.isManualRh || pIn.isEditedByRh || pOut.isManualRh || pOut.isEditedByRh),
           complete: true
         });
 
-        // Se houver uma próxima entrada depois desta saída, calcula o tempo de intervalo fora
         const nextIn = passes[i + 2];
         if (nextIn) {
           const breakMin = Math.max(0, (nextIn.timestampMs - pOut.timestampMs) / 60000);
@@ -823,6 +1544,7 @@ async function getAttendanceReports(filters = {}) {
           outTimeFull: 'Batida Ímpar',
           durationMinutes: 0,
           durationFormatted: 'Incompleto',
+          isManualOrEdited: !!(pIn.isManualRh || pIn.isEditedByRh),
           complete: false
         });
       }
@@ -831,21 +1553,51 @@ async function getAttendanceReports(filters = {}) {
     // ---------------------------------------------------------
     // CÁLCULO 2: JORNADA DIRETA (1ª BATIDA ATÉ ÚLTIMA BATIDA)
     // ---------------------------------------------------------
-    const firstPass = passes[0];
-    const lastPass = passes[passes.length - 1];
-    const grossSpanMinutes = passes.length > 1
+    const firstPass = passes[0] || null;
+    const lastPass = passes.length > 0 ? passes[passes.length - 1] : null;
+    let grossSpanMinutes = passes.length > 1
       ? Math.max(0, (lastPass.timestampMs - firstPass.timestampMs) / 60000)
       : 0;
 
-    // Desconto de almoço no modo direto:
     let deductedLunchMinutes = 0;
     if (grossSpanMinutes >= autoDeductAfter) {
       deductedLunchMinutes = defaultLunchMinutes;
     }
-    const directNetMinutes = Math.max(0, grossSpanMinutes - deductedLunchMinutes);
+    let directNetMinutes = Math.max(0, grossSpanMinutes - deductedLunchMinutes);
 
-    const pairedBalanceMinutes = Math.round(pairedWorkedMinutes) - workdayMinutes;
-    const directBalanceMinutes = Math.round(directNetMinutes) - workdayMinutes;
+    // ---------------------------------------------------------
+    // APLICAÇÃO DE AJUSTES DIÁRIOS DO RH (VIAGEM / SERVIÇO EXTERNO / ABONO / HORAS FIXAS)
+    // ---------------------------------------------------------
+    let expectedDayMinutes = workdayMinutes;
+    if (dayAdj) {
+      if (dayAdj.customExpectedMinutes !== null && dayAdj.customExpectedMinutes !== undefined) {
+        expectedDayMinutes = dayAdj.customExpectedMinutes;
+      }
+      if (dayAdj.adjustmentMode === 'FIXED_HOURS') {
+        pairedWorkedMinutes = dayAdj.manualWorkedMinutes;
+        directNetMinutes = dayAdj.manualWorkedMinutes;
+        if (passes.length === 0) {
+          grossSpanMinutes = dayAdj.manualWorkedMinutes;
+        }
+        hasUnpairedPass = false;
+      } else if (dayAdj.adjustmentMode === 'BONUS_HOURS') {
+        pairedWorkedMinutes = Math.max(0, pairedWorkedMinutes + (dayAdj.bonusMinutes || 0));
+        directNetMinutes = Math.max(0, directNetMinutes + (dayAdj.bonusMinutes || 0));
+        grossSpanMinutes = Math.max(0, grossSpanMinutes + (dayAdj.bonusMinutes || 0));
+      } else if (dayAdj.adjustmentMode === 'ABONO_FALTA') {
+        expectedDayMinutes = Math.round(pairedWorkedMinutes);
+        hasUnpairedPass = false;
+      }
+    }
+
+    const hasManualOrEditedPunches = passes.some(p => p.isManualRh || p.isEditedByRh);
+    const manualReasons = Array.from(new Set([
+      ...(dayAdj && dayAdj.reasonType ? [dayAdj.reasonType] : []),
+      ...passes.filter(p => p.isManualRh || p.isEditedByRh).map(p => p.reasonType).filter(Boolean)
+    ]));
+
+    const pairedBalanceMinutes = Math.round(pairedWorkedMinutes) - expectedDayMinutes;
+    const directBalanceMinutes = Math.round(directNetMinutes) - expectedDayMinutes;
 
     const dailyRow = {
       isoDate: group.isoDate,
@@ -857,6 +1609,11 @@ async function getAttendanceReports(filters = {}) {
       department: group.department,
       passesCount: passes.length,
       allPassesText: passes.map(p => `${p.timeHM} (${p.direction === 'ENTRADA' ? 'E' : 'S'})`).join(' · '),
+      // Dados de Ajuste RH / Viagem / Serviço Externo
+      hasRhIntervention: !!(dayAdj || hasManualOrEditedPunches),
+      dailyAdjustment: dayAdj,
+      rhReasons: manualReasons,
+      rhNotes: dayAdj?.notes || passes.find(p => p.notes)?.notes || '',
       // Dados Modo 1 (Pareado)
       pairs,
       pairedWorkedMinutes: Math.round(pairedWorkedMinutes),
@@ -867,10 +1624,10 @@ async function getAttendanceReports(filters = {}) {
       pairedBalanceMinutes,
       pairedBalanceFormatted: formatMinutesToHours(pairedBalanceMinutes, true),
       // Dados Modo 2 (1ª à Última Batida)
-      firstInTime: firstPass.timeHM,
-      firstInTimeFull: firstPass.timeHMS,
-      lastOutTime: passes.length > 1 ? lastPass.timeHM : '---',
-      lastOutTimeFull: passes.length > 1 ? lastPass.timeHMS : 'Apenas 1 giro',
+      firstInTime: firstPass ? firstPass.timeHM : (dayAdj ? 'Ajuste RH' : '---'),
+      firstInTimeFull: firstPass ? firstPass.timeHMS : (dayAdj ? dayAdj.reasonType : '---'),
+      lastOutTime: passes.length > 1 ? lastPass.timeHM : (dayAdj ? 'Ajuste RH' : '---'),
+      lastOutTimeFull: passes.length > 1 ? lastPass.timeHMS : (dayAdj ? dayAdj.reasonType : 'Apenas 1 giro'),
       grossSpanMinutes: Math.round(grossSpanMinutes),
       grossSpanFormatted: formatMinutesToHours(grossSpanMinutes),
       deductedLunchMinutes: Math.round(deductedLunchMinutes),
@@ -879,8 +1636,8 @@ async function getAttendanceReports(filters = {}) {
       directNetFormatted: formatMinutesToHours(directNetMinutes),
       directBalanceMinutes,
       directBalanceFormatted: formatMinutesToHours(directBalanceMinutes, true),
-      expectedWorkdayMinutes: workdayMinutes,
-      expectedWorkdayFormatted: formatMinutesToHours(workdayMinutes)
+      expectedWorkdayMinutes: expectedDayMinutes,
+      expectedWorkdayFormatted: formatMinutesToHours(expectedDayMinutes)
     };
 
     dailyRecords.push(dailyRow);
@@ -895,6 +1652,7 @@ async function getAttendanceReports(filters = {}) {
         daysWorked: 0,
         totalPasses: 0,
         unpairedDaysCount: 0,
+        adjustedDaysCount: 0,
         totalPairedWorkedMinutes: 0,
         totalPairedBreakMinutes: 0,
         totalDirectGrossMinutes: 0,
@@ -907,11 +1665,12 @@ async function getAttendanceReports(filters = {}) {
     m.daysWorked += 1;
     m.totalPasses += passes.length;
     if (hasUnpairedPass) m.unpairedDaysCount += 1;
+    if (dailyRow.hasRhIntervention) m.adjustedDaysCount += 1;
     m.totalPairedWorkedMinutes += Math.round(pairedWorkedMinutes);
     m.totalPairedBreakMinutes += Math.round(pairedBreakMinutes);
     m.totalDirectGrossMinutes += Math.round(grossSpanMinutes);
     m.totalDirectNetMinutes += Math.round(directNetMinutes);
-    m.totalExpectedMinutes += workdayMinutes;
+    m.totalExpectedMinutes += expectedDayMinutes;
   }
 
   // Ordenar registros diários por data decrescente e nome
@@ -957,6 +1716,8 @@ async function getAttendanceReports(filters = {}) {
     dbType: cfg.dbType,
     dbHost: cfg.host,
     dbName: cfg.database,
+    commercialDbConnected: !!adjData.commercialDbConnected,
+    commercialDbName: cfg.mainDatabaseName || 'sedna_pedidos',
     dbWarning,
     config: {
       workdayMinutes,
@@ -985,5 +1746,10 @@ module.exports = {
   saveRhConfig,
   testAndInspectDatabase,
   getAttendanceReports,
+  getDayDetails,
+  savePunchLancamentos,
+  deletePunchLancamento,
+  saveDailyAdjustment,
+  deleteDailyAdjustment,
   closePools
 };

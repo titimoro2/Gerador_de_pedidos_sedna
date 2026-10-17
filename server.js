@@ -1688,6 +1688,75 @@ app.post('/api/rh/test-connection', authMiddleware, async (req, res) => {
   }
 });
 
+// Get detailed punches (including ignored/edited) and daily adjustment for a specific employee and date
+app.get('/api/rh/day-details', authMiddleware, async (req, res) => {
+  if (!canAccessRh(req.user)) {
+    return res.status(403).json({ error: 'Acesso restrito.' });
+  }
+  try {
+    const { employeeName, isoDate } = req.query || {};
+    if (!employeeName || !isoDate) {
+      return res.status(400).json({ error: 'Funcionário e data são obrigatórios.' });
+    }
+    const details = await rhDb.getDayDetails(employeeName, isoDate);
+    res.json(details);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Add manual punch(es), edit existing turnstile punch, or ignore punch
+app.post('/api/rh/lancamentos', authMiddleware, async (req, res) => {
+  if (!canAccessRh(req.user)) {
+    return res.status(403).json({ error: 'Acesso restrito.' });
+  }
+  try {
+    const result = await rhDb.savePunchLancamentos(req.body || {}, req.user);
+    res.json({ message: 'Lançamento de ponto salvo com sucesso!', ...result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Delete manual punch or restore edited/ignored turnstile punch
+app.delete('/api/rh/lancamentos/:id', authMiddleware, async (req, res) => {
+  if (!canAccessRh(req.user)) {
+    return res.status(403).json({ error: 'Acesso restrito.' });
+  }
+  try {
+    const result = await rhDb.deletePunchLancamento(req.params.id);
+    res.json({ message: 'Lançamento removido/restaurado com sucesso!', ...result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Save daily hours adjustment (Viagem, Serviço Externo, Horas Fixas, Abono)
+app.post('/api/rh/ajustes-diarios', authMiddleware, async (req, res) => {
+  if (!canAccessRh(req.user)) {
+    return res.status(403).json({ error: 'Acesso restrito.' });
+  }
+  try {
+    const result = await rhDb.saveDailyAdjustment(req.body || {}, req.user);
+    res.json({ message: 'Ajuste diário de horas salvo com sucesso!', ...result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Delete daily hours adjustment
+app.delete('/api/rh/ajustes-diarios/:id', authMiddleware, async (req, res) => {
+  if (!canAccessRh(req.user)) {
+    return res.status(403).json({ error: 'Acesso restrito.' });
+  }
+  try {
+    const result = await rhDb.deleteDailyAdjustment(req.params.id);
+    res.json({ message: 'Ajuste diário removido com sucesso!', ...result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // ================= UPLOADS =================
 
 // Upload image (logo)

@@ -1,12 +1,17 @@
 // ============================================================================
 // PAINEL RH - CONTROLE DE HORAS & CATRACA iD CONTROL (SEDNA GROUP)
+// Conexão 1: Leitura Catraca iD Control (MySQL / SQL Server)
+// Conexão 2: Gravação Sistema RH no Banco Comercial (sedna_pedidos)
 // ============================================================================
 
 const rhState = {
   user: null,
   activeReport: 'monthly', // 'monthly' | 'paired' | 'direct' | 'raw'
   lastData: null,
-  isForcedPasswordChange: false
+  isForcedPasswordChange: false,
+  launchMode: 'hours', // 'hours' | 'punches'
+  dayEditorContext: null, // { employeeId, employeeName, registration, department, isoDate }
+  dayEditorData: null
 };
 
 function getAuthToken() {
@@ -46,6 +51,38 @@ function escapeHtml(str) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function escapeJsAttr(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '&quot;');
+}
+
+function parseHMToMinutes(hmStr) {
+  if (!hmStr) return 0;
+  const parts = String(hmStr).trim().split(':');
+  const h = parseInt(parts[0] || '0', 10) || 0;
+  const m = parseInt(parts[1] || '0', 10) || 0;
+  return Math.max(0, h * 60 + m);
+}
+
+function minutesToHMInput(totalMin) {
+  const m = Math.max(0, Math.round(Number(totalMin) || 0));
+  const hh = String(Math.floor(m / 60)).padStart(2, '0');
+  const mm = String(m % 60).padStart(2, '0');
+  return `${hh}:${mm}`;
+}
+
+function getReasonIcon(reason) {
+  const r = String(reason || '').toLowerCase();
+  if (r.includes('viagem')) return '✈️';
+  if (r.includes('externo') || r.includes('cliente')) return '🚐';
+  if (r.includes('atestado') || r.includes('abono')) return '🏥';
+  if (r.includes('esquecimento')) return '🕒';
+  return '✏️';
 }
 
 // ============================================================================
@@ -154,7 +191,7 @@ async function initAuth() {
 }
 
 // ============================================================================
-// CARREGAMENTO E RENDERIZAÇÃO DOS RELATÓRIOS DA CATRACA
+// CARREGAMENTO E RENDERIZAÇÃO DOS RELATÓRIOS DA CATRACA + BANCO COMERCIAL
 // ============================================================================
 async function loadRhReports() {
   const startDate = document.getElementById('fltStartDate')?.value || '';
@@ -182,7 +219,7 @@ async function loadRhReports() {
   const statusDot = document.getElementById('idControlStatusDot');
   const statusTitle = document.getElementById('idControlStatusTitle');
   const statusDesc = document.getElementById('idControlStatusDesc');
-  if (statusTitle) statusTitle.textContent = 'Carregando dados da catraca iD Control...';
+  if (statusTitle) statusTitle.textContent = 'Carregando dados da catraca iD Control e lançamentos do RH...';
 
   try {
     const res = await apiFetch(`/api/rh/reports?${params.toString()}`);
@@ -193,20 +230,24 @@ async function loadRhReports() {
 
     rhState.lastData = data;
 
-    // Atualiza barra de status do banco iD Control
+    // Atualiza barra de status mostrando as 2 conexões (Catraca iD Control + Banco Comercial sedna_pedidos)
     if (statusDot && statusTitle && statusDesc) {
       statusDot.className = 'status-dot';
+      const commDbStatus = data.commercialDbConnected
+        ? `🟢 Conexão 2 Ativa: Gravando edições/viagens no Banco Comercial (${data.commercialDbName || 'sedna_pedidos'})`
+        : `🟡 Conexão 2 Local: Gravando edições/viagens em armazenamento seguro do servidor`;
+
       if (data.dataSource === 'database') {
         statusDot.classList.add('connected');
-        statusTitle.textContent = `Conectado ao Banco de Dados iD Control em Tempo Real (${data.dbHost || 'localhost'} / ${data.dbName || 'iDSecure'})`;
-        statusDesc.textContent = `${data.kpis?.rawPassesCount || 0} giros lidos diretamente da catraca no período selecionado.`;
+        statusTitle.textContent = `🟢 Conexão 1 Ativa: Catraca iD Control (${data.dbHost || 'localhost'} / ${data.dbName || 'iDSecure'})`;
+        statusDesc.textContent = `${data.kpis?.rawPassesCount || 0} batidas consideradas no período · ${commDbStatus}.`;
       } else if (data.dbWarning) {
         statusDot.classList.add('warning');
-        statusTitle.textContent = `Atenção: ${data.dbWarning}`;
-        statusDesc.textContent = 'Clique em "Banco iD Control" no topo para revisar o IP/Senha do SQL Server.';
+        statusTitle.textContent = `⚠️ Conexão 1 (iD Control): ${data.dbWarning}`;
+        statusDesc.textContent = `${commDbStatus} · Clique em "Banco iD Control" no topo para revisar a leitura da catraca.`;
       } else {
-        statusTitle.textContent = 'Modo Demonstração Ativo (Simulação de Catraca iD Control)';
-        statusDesc.textContent = 'Os 3 relatórios já estão prontos para uso. Clique em "Banco iD Control" no topo para conectar ao SQL Server oficial.';
+        statusTitle.textContent = 'Conexão 1: Simulação iD Control Ativa (Clique em "Banco iD Control" para selecionar o banco oficial)';
+        statusDesc.textContent = `${commDbStatus} · Você já pode editar horas, adicionar batidas e lançar viagens/serviços externos.`;
       }
     }
 
@@ -308,12 +349,16 @@ function renderMonthlyTable(rows) {
     const alertTag = r.unpairedDaysCount > 0
       ? `<div style="font-size: 0.72rem; color: #b45309; font-weight: 600; margin-top: 2px;">⚠️ ${r.unpairedDaysCount} dia(s) batida ímpar</div>`
       : '';
+    const adjTag = r.adjustedDaysCount > 0
+      ? `<div style="font-size: 0.72rem; color: #0369a1; font-weight: 600; margin-top: 2px;">✈️ ${r.adjustedDaysCount} dia(s) c/ lançamento RH (Viagem/Externo/Ajuste)</div>`
+      : '';
 
     return `
       <tr>
         <td>
           <strong style="color: #0f172a;">${escapeHtml(r.employeeName)}</strong>
           ${alertTag}
+          ${adjTag}
         </td>
         <td><code>${escapeHtml(r.registration)}</code></td>
         <td>${escapeHtml(r.department)}</td>
@@ -326,9 +371,12 @@ function renderMonthlyTable(rows) {
         <td style="font-weight: 600;">${escapeHtml(r.avgDailyPairedFormatted)}</td>
         <td>${escapeHtml(r.totalExpectedFormatted)}</td>
         <td>${formatBalanceBadge(r.pairedBalanceMinutes, r.pairedBalanceFormatted)}</td>
-        <td class="no-print" style="text-align: right; white-space: nowrap;">
-          <button type="button" class="btn btn-sm btn-secondary" onclick="filterByEmployeeAndInspect('${escapeHtml(r.employeeId)}')">
+        <td class="no-print" style="text-align: right; white-space: nowrap; display: flex; gap: 6px; justify-content: flex-end;">
+          <button type="button" class="btn btn-sm btn-secondary" onclick="filterByEmployeeAndInspect('${escapeJsAttr(r.employeeId)}')" title="Ver todos os dias deste funcionário">
             🔎 Ver Dias
+          </button>
+          <button type="button" class="btn btn-sm btn-primary" onclick="openRhLaunchModalForEmployee('${escapeJsAttr(r.employeeName)}', '${escapeJsAttr(r.registration)}', '${escapeJsAttr(r.department)}')" title="Lançar Viagem, Serviço Externo ou Ponto para este funcionário">
+            ➕ Lançar
           </button>
         </td>
       </tr>
@@ -345,6 +393,10 @@ window.filterByEmployeeAndInspect = function(userId) {
   loadRhReports();
 };
 
+window.openRhLaunchModalForEmployee = function(employeeName, registration, department) {
+  openRhLaunchModal({ employeeName, registration, department });
+};
+
 // ============================================================================
 // TABELA 1: RELATÓRIO 1 - HORAS PAREADAS (ENTRADA & SAÍDA GIRO A GIRO)
 // ============================================================================
@@ -358,7 +410,7 @@ function renderPairedTable(rows) {
   if (!rows.length) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="10" style="text-align: center; padding: 32px; color: #64748b;">
+        <td colspan="11" style="text-align: center; padding: 32px; color: #64748b;">
           Nenhum registro diário encontrado para os filtros informados.
         </td>
       </tr>
@@ -368,15 +420,50 @@ function renderPairedTable(rows) {
 
   tbody.innerHTML = rows.map(r => {
     const pairsHtml = (r.pairs || []).map(p => {
+      const manualTag = p.isManualOrEdited ? ' ✏️' : '';
       if (!p.complete) {
-        return `<span class="pass-pair-pill incomplete" title="Giro sem par de saída registrado">⚠️ ${escapeHtml(p.inTime)} &rarr; Sem Saída</span>`;
+        return `<span class="pass-pair-pill incomplete" title="Giro sem par de saída registrado">⚠️ ${escapeHtml(p.inTime)} &rarr; Sem Saída${manualTag}</span>`;
       }
-      return `<span class="pass-pair-pill" title="Duração deste período: ${escapeHtml(p.durationFormatted)}">🟢 ${escapeHtml(p.inTime)} &rarr; 🔴 ${escapeHtml(p.outTime)} <strong>(${escapeHtml(p.durationFormatted)})</strong></span>`;
+      return `<span class="pass-pair-pill" title="Duração deste período: ${escapeHtml(p.durationFormatted)}">🟢 ${escapeHtml(p.inTime)} &rarr; 🔴 ${escapeHtml(p.outTime)} <strong>(${escapeHtml(p.durationFormatted)})${manualTag}</strong></span>`;
     }).join(' ');
 
-    const statusBadge = r.hasUnpairedPass
-      ? `<span class="dir-badge out" title="Número ímpar de giros na catraca neste dia">⚠️ Batida Ímpar (${r.passesCount})</span>`
-      : `<span class="dir-badge in">✓ Completo (${r.passesCount} giros)</span>`;
+    let rhAdjustmentHtml = '';
+    if (r.dailyAdjustment) {
+      const icon = getReasonIcon(r.dailyAdjustment.reasonType);
+      const modeDesc =
+        r.dailyAdjustment.adjustmentMode === 'FIXED_HOURS'
+          ? 'Horas Definidas pelo RH'
+          : r.dailyAdjustment.adjustmentMode === 'BONUS_HOURS'
+          ? 'Horas Somadas pelo RH'
+          : r.dailyAdjustment.adjustmentMode === 'ABONO_FALTA'
+          ? 'Falta Abonada'
+          : 'Observação RH';
+      rhAdjustmentHtml = `
+        <div style="margin-top: 4px;">
+          <span class="pass-pair-pill" style="background: #e0f2fe; border-color: #7dd3fc; color: #0369a1; font-weight: 700;">
+            ${icon} ${escapeHtml(r.dailyAdjustment.reasonType)} (${modeDesc})
+          </span>
+          ${r.dailyAdjustment.notes ? `<span style="font-size: 0.74rem; color: #475569; margin-left: 6px;">"${escapeHtml(r.dailyAdjustment.notes)}"</span>` : ''}
+        </div>
+      `;
+    } else if (r.hasRhIntervention && r.rhReasons && r.rhReasons.length > 0) {
+      const reasonStr = r.rhReasons.join(', ');
+      rhAdjustmentHtml = `
+        <div style="margin-top: 4px; font-size: 0.73rem; color: #0369a1; font-weight: 600;">
+          ${getReasonIcon(reasonStr)} Batida lançada/editada pelo RH: ${escapeHtml(reasonStr)}
+          ${r.rhNotes ? ` · "${escapeHtml(r.rhNotes)}"` : ''}
+        </div>
+      `;
+    }
+
+    let statusBadge = '';
+    if (r.dailyAdjustment && (r.dailyAdjustment.adjustmentMode === 'FIXED_HOURS' || r.dailyAdjustment.adjustmentMode === 'ABONO_FALTA')) {
+      statusBadge = `<span class="dir-badge in" style="background: #e0f2fe; color: #0369a1;">${getReasonIcon(r.dailyAdjustment.reasonType)} ${escapeHtml(r.dailyAdjustment.reasonType)}</span>`;
+    } else if (r.hasUnpairedPass) {
+      statusBadge = `<span class="dir-badge out" title="Número ímpar de giros na catraca neste dia">⚠️ Batida Ímpar (${r.passesCount})</span>`;
+    } else {
+      statusBadge = `<span class="dir-badge in">✓ Completo (${r.passesCount} giros)</span>`;
+    }
 
     return `
       <tr>
@@ -387,12 +474,20 @@ function renderPairedTable(rows) {
           <div style="font-size: 0.74rem; color: #64748b;">Matrícula: ${escapeHtml(r.registration)}</div>
         </td>
         <td>${escapeHtml(r.department)}</td>
-        <td>${pairsHtml || '-'}</td>
+        <td>
+          ${pairsHtml || (r.dailyAdjustment ? '' : '-')}
+          ${rhAdjustmentHtml}
+        </td>
         <td style="white-space: nowrap;">${escapeHtml(r.pairedBreakFormatted)}</td>
         <td><span class="hours-highlight">${escapeHtml(r.pairedWorkedFormatted)}</span></td>
         <td style="white-space: nowrap;">${escapeHtml(r.expectedWorkdayFormatted)}</td>
         <td>${formatBalanceBadge(r.pairedBalanceMinutes, r.pairedBalanceFormatted)}</td>
         <td style="white-space: nowrap;">${statusBadge}</td>
+        <td class="no-print" style="text-align: right; white-space: nowrap;">
+          <button type="button" class="btn btn-sm btn-primary" onclick="openDayEditorModal('${escapeJsAttr(r.employeeName)}', '${escapeJsAttr(r.isoDate)}', '${escapeJsAttr(r.registration)}', '${escapeJsAttr(r.department)}')">
+            ✏️ Editar Dia
+          </button>
+        </td>
       </tr>
     `;
   }).join('');
@@ -411,7 +506,7 @@ function renderDirectTable(rows) {
   if (!rows.length) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="11" style="text-align: center; padding: 32px; color: #64748b;">
+        <td colspan="12" style="text-align: center; padding: 32px; color: #64748b;">
           Nenhum registro diário encontrado para os filtros informados.
         </td>
       </tr>
@@ -420,6 +515,12 @@ function renderDirectTable(rows) {
   }
 
   tbody.innerHTML = rows.map(r => {
+    const rhBadge = r.dailyAdjustment
+      ? `<div style="font-size: 0.72rem; color: #0369a1; font-weight: 700; margin-top: 2px;">${getReasonIcon(r.dailyAdjustment.reasonType)} ${escapeHtml(r.dailyAdjustment.reasonType)}</div>`
+      : r.hasRhIntervention
+      ? `<div style="font-size: 0.72rem; color: #0369a1; font-weight: 600; margin-top: 2px;">✏️ Editado pelo RH</div>`
+      : '';
+
     return `
       <tr>
         <td style="font-weight: 700; white-space: nowrap;">${escapeHtml(r.dateBR)}</td>
@@ -427,6 +528,7 @@ function renderDirectTable(rows) {
         <td>
           <strong>${escapeHtml(r.employeeName)}</strong>
           <div style="font-size: 0.74rem; color: #64748b;">Matrícula: ${escapeHtml(r.registration)}</div>
+          ${rhBadge}
         </td>
         <td>${escapeHtml(r.department)}</td>
         <td><span class="dir-badge in">🟢 ${escapeHtml(r.firstInTime)}</span></td>
@@ -436,6 +538,11 @@ function renderDirectTable(rows) {
         <td style="white-space: nowrap; color: #64748b;">-${escapeHtml(r.deductedLunchFormatted)}</td>
         <td><span class="hours-highlight" style="background: #dcfce7; border-color: #86efac;">${escapeHtml(r.directNetFormatted)}</span></td>
         <td>${formatBalanceBadge(r.directBalanceMinutes, r.directBalanceFormatted)}</td>
+        <td class="no-print" style="text-align: right; white-space: nowrap;">
+          <button type="button" class="btn btn-sm btn-primary" onclick="openDayEditorModal('${escapeJsAttr(r.employeeName)}', '${escapeJsAttr(r.isoDate)}', '${escapeJsAttr(r.registration)}', '${escapeJsAttr(r.department)}')">
+            ✏️ Editar Dia
+          </button>
+        </td>
       </tr>
     `;
   }).join('');
@@ -454,7 +561,7 @@ function renderRawTable(rows) {
   if (!rows.length) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="9" style="text-align: center; padding: 32px; color: #64748b;">
+        <td colspan="10" style="text-align: center; padding: 32px; color: #64748b;">
           Nenhum giro bruto encontrado para os filtros selecionados.
         </td>
       </tr>
@@ -468,6 +575,16 @@ function renderRawTable(rows) {
       ? `<span class="dir-badge in">🟢 ENTRADA</span>`
       : `<span class="dir-badge out">🔴 SAÍDA</span>`;
 
+    const originBadge = r.isManualRh
+      ? `<span class="dir-badge" style="background: #e0f2fe; color: #0369a1; margin-left: 4px;">${getReasonIcon(r.reasonType)} Manual RH</span>`
+      : r.isEditedByRh
+      ? `<span class="dir-badge" style="background: #fef3c7; color: #b45309; margin-left: 4px;">✏️ Editado RH</span>`
+      : '';
+
+    const deleteBtn = (r.isManualRh || r.isEditedByRh) && r.lancamentoId
+      ? `<button type="button" class="btn btn-sm btn-secondary" style="color: #dc2626;" onclick="deleteRhLancamentoAndReload('${escapeJsAttr(r.lancamentoId)}')" title="Excluir lançamento manual ou restaurar batida original">🗑️</button>`
+      : '';
+
     return `
       <tr>
         <td><code>#${escapeHtml(r.id)}</code></td>
@@ -478,10 +595,660 @@ function renderRawTable(rows) {
         <td><code>${escapeHtml(r.registration)}</code></td>
         <td>${escapeHtml(r.department)}</td>
         <td>${dirHtml}</td>
-        <td>${escapeHtml(r.deviceName)}</td>
+        <td>
+          ${escapeHtml(r.deviceName)}
+          ${originBadge}
+          ${r.notes ? `<div style="font-size: 0.72rem; color: #64748b;">Obs: ${escapeHtml(r.notes)}</div>` : ''}
+        </td>
+        <td class="no-print" style="text-align: right; white-space: nowrap; display: flex; gap: 6px; justify-content: flex-end;">
+          <button type="button" class="btn btn-sm btn-primary" onclick="openDayEditorModal('${escapeJsAttr(r.employeeName)}', '${escapeJsAttr(r.isoDate)}', '${escapeJsAttr(r.registration)}', '${escapeJsAttr(r.department)}')">
+            ✏️ Editar Dia
+          </button>
+          ${deleteBtn}
+        </td>
       </tr>
     `;
   }).join('');
+}
+
+window.deleteRhLancamentoAndReload = async function(lancamentoId) {
+  if (!lancamentoId) return;
+  try {
+    const res = await apiFetch(`/api/rh/lancamentos/${encodeURIComponent(lancamentoId)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      alert(errData.error || 'Erro ao remover lançamento.');
+      return;
+    }
+    await loadRhReports();
+  } catch (err) {
+    alert(`Erro: ${err.message}`);
+  }
+};
+
+// ============================================================================
+// MODAL 1: LANÇAR PONTO MANUAL / VIAGEM A TRABALHO / SERVIÇO EXTERNO
+// ============================================================================
+function setLaunchMode(mode) {
+  rhState.launchMode = mode === 'punches' ? 'punches' : 'hours';
+  const btnHours = document.getElementById('tabBtnLaunchModeHours');
+  const btnPunches = document.getElementById('tabBtnLaunchModePunches');
+  const panelHours = document.getElementById('panelLaunchModeHours');
+  const panelPunches = document.getElementById('panelLaunchModePunches');
+
+  if (btnHours && btnPunches) {
+    if (rhState.launchMode === 'hours') {
+      btnHours.style.background = '#2563eb';
+      btnHours.style.color = '#fff';
+      btnHours.style.borderColor = '#2563eb';
+      btnPunches.style.background = '#fff';
+      btnPunches.style.color = '#334155';
+      btnPunches.style.borderColor = '#cbd5e1';
+    } else {
+      btnPunches.style.background = '#2563eb';
+      btnPunches.style.color = '#fff';
+      btnPunches.style.borderColor = '#2563eb';
+      btnHours.style.background = '#fff';
+      btnHours.style.color = '#334155';
+      btnHours.style.borderColor = '#cbd5e1';
+    }
+  }
+
+  if (panelHours) panelHours.style.display = rhState.launchMode === 'hours' ? 'block' : 'none';
+  if (panelPunches) panelPunches.style.display = rhState.launchMode === 'punches' ? 'block' : 'none';
+}
+
+function updateLaunchHoursTypeUi() {
+  const selType = document.getElementById('selLaunchHoursType');
+  const grpHours = document.getElementById('grpLaunchHoursInput');
+  const inpHM = document.getElementById('inpLaunchHoursHM');
+  if (!selType || !grpHours) return;
+
+  if (selType.value === 'ABONO_FALTA') {
+    grpHours.style.display = 'none';
+  } else {
+    grpHours.style.display = 'block';
+    if (inpHM && selType.value === 'BONUS_HOURS' && inpHM.value === '08:48') {
+      inpHM.value = '02:00';
+    } else if (inpHM && selType.value === 'FIXED_HOURS' && inpHM.value === '02:00') {
+      inpHM.value = '08:48';
+    }
+  }
+}
+
+function updateLaunchPunchPresetUi() {
+  const selPreset = document.getElementById('selLaunchPunchPreset');
+  const boxSingle = document.getElementById('boxLaunchSinglePunch');
+  const boxFull = document.getElementById('boxLaunchFullDayPunches');
+  if (!selPreset || !boxSingle || !boxFull) return;
+
+  if (selPreset.value === 'full_day') {
+    boxSingle.style.display = 'none';
+    boxFull.style.display = 'block';
+  } else {
+    boxSingle.style.display = 'grid';
+    boxFull.style.display = 'none';
+  }
+}
+
+function showRhLaunchAlert(msg, isSuccess = false) {
+  const el = document.getElementById('rhLaunchAlert');
+  if (!el) return;
+  el.style.display = 'block';
+  el.style.background = isSuccess ? '#dcfce7' : '#fee2e2';
+  el.style.border = isSuccess ? '1px solid #86efac' : '1px solid #fca5a5';
+  el.style.color = isSuccess ? '#166534' : '#991b1b';
+  el.innerHTML = msg;
+}
+
+function openRhLaunchModal(prefill = {}) {
+  const modal = document.getElementById('modalRhLaunch');
+  if (!modal) return;
+
+  const alertBox = document.getElementById('rhLaunchAlert');
+  if (alertBox) alertBox.style.display = 'none';
+
+  const employees = rhState.lastData?.availableEmployees || [];
+  const selEmp = document.getElementById('selLaunchEmployee');
+  const chkNew = document.getElementById('chkLaunchNewEmployee');
+  const boxExisting = document.getElementById('boxLaunchExistingEmployee');
+  const boxCustom = document.getElementById('boxLaunchCustomEmployee');
+
+  if (selEmp) {
+    selEmp.innerHTML = '';
+    employees.forEach(emp => {
+      const opt = document.createElement('option');
+      opt.value = emp.name;
+      opt.setAttribute('data-id', emp.id || emp.name);
+      opt.setAttribute('data-reg', emp.registration || '-');
+      opt.setAttribute('data-dept', emp.department || 'Geral');
+      opt.textContent = `${emp.name} (Matrícula: ${emp.registration || '-'} · ${emp.department || 'Geral'})`;
+      selEmp.appendChild(opt);
+    });
+  }
+
+  const todayStr = prefill.isoDate || toIsoDate(new Date());
+  const inpStart = document.getElementById('inpLaunchStartDate');
+  const inpEnd = document.getElementById('inpLaunchEndDate');
+  if (inpStart) inpStart.value = todayStr;
+  if (inpEnd) inpEnd.value = todayStr;
+
+  const inpNotes = document.getElementById('inpLaunchNotes');
+  if (inpNotes) inpNotes.value = '';
+
+  if (prefill.employeeName) {
+    const found = employees.find(e => e.name === prefill.employeeName);
+    if (found && selEmp && chkNew) {
+      chkNew.checked = false;
+      selEmp.value = found.name;
+      if (boxExisting) boxExisting.style.display = 'block';
+      if (boxCustom) boxCustom.style.display = 'none';
+    } else if (chkNew) {
+      chkNew.checked = true;
+      if (boxExisting) boxExisting.style.display = 'none';
+      if (boxCustom) boxCustom.style.display = 'grid';
+      document.getElementById('inpLaunchEmpName').value = prefill.employeeName || '';
+      document.getElementById('inpLaunchEmpReg').value = prefill.registration || '';
+      document.getElementById('inpLaunchEmpDept').value = prefill.department || 'Comercial';
+    }
+  } else if (chkNew) {
+    const hasEmployees = employees.length > 0;
+    chkNew.checked = !hasEmployees;
+    if (boxExisting) boxExisting.style.display = hasEmployees ? 'block' : 'none';
+    if (boxCustom) boxCustom.style.display = hasEmployees ? 'none' : 'grid';
+  }
+
+  setLaunchMode(prefill.mode || 'hours');
+  updateLaunchHoursTypeUi();
+  updateLaunchPunchPresetUi();
+
+  modal.classList.add('active');
+}
+
+async function saveRhLaunch() {
+  const chkNew = document.getElementById('chkLaunchNewEmployee');
+  const selEmp = document.getElementById('selLaunchEmployee');
+
+  let employeeName = '';
+  let employeeId = '';
+  let registration = '-';
+  let department = 'Geral';
+
+  if (chkNew && chkNew.checked) {
+    employeeName = document.getElementById('inpLaunchEmpName')?.value.trim() || '';
+    registration = document.getElementById('inpLaunchEmpReg')?.value.trim() || '-';
+    department = document.getElementById('inpLaunchEmpDept')?.value.trim() || 'Geral';
+    employeeId = registration !== '-' ? registration : employeeName;
+  } else if (selEmp && selEmp.selectedOptions.length > 0) {
+    const opt = selEmp.selectedOptions[0];
+    employeeName = opt.value;
+    employeeId = opt.getAttribute('data-id') || employeeName;
+    registration = opt.getAttribute('data-reg') || '-';
+    department = opt.getAttribute('data-dept') || 'Geral';
+  }
+
+  if (!employeeName) {
+    return showRhLaunchAlert('Selecione ou digite o nome do funcionário.');
+  }
+
+  const startDate = document.getElementById('inpLaunchStartDate')?.value || '';
+  const endDate = document.getElementById('inpLaunchEndDate')?.value || startDate;
+  if (!startDate) {
+    return showRhLaunchAlert('Informe a data inicial do lançamento.');
+  }
+  if (endDate < startDate) {
+    return showRhLaunchAlert('A data final não pode ser anterior à data inicial.');
+  }
+
+  const reasonType = document.getElementById('selLaunchReason')?.value || 'Viagem a Trabalho';
+  const skipWeekends = !!document.getElementById('chkLaunchSkipWeekends')?.checked;
+  const notes = document.getElementById('inpLaunchNotes')?.value.trim() || '';
+
+  const btnSave = document.getElementById('btnSaveRhLaunch');
+  if (btnSave) {
+    btnSave.disabled = true;
+    btnSave.textContent = '⏳ Salvando no Banco...';
+  }
+
+  try {
+    if (rhState.launchMode === 'hours') {
+      const adjustmentMode = document.getElementById('selLaunchHoursType')?.value || 'FIXED_HOURS';
+      const hmVal = document.getElementById('inpLaunchHoursHM')?.value || '08:48';
+      const minutesVal = parseHMToMinutes(hmVal);
+
+      const res = await apiFetch('/api/rh/ajustes-diarios', {
+        method: 'POST',
+        body: {
+          employeeId,
+          employeeName,
+          registration,
+          department,
+          startDate,
+          endDate,
+          skipWeekends,
+          adjustmentMode,
+          manualWorkedMinutes: adjustmentMode === 'FIXED_HOURS' ? minutesVal : 0,
+          bonusMinutes: adjustmentMode === 'BONUS_HOURS' ? minutesVal : 0,
+          reasonType,
+          notes
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Falha ao salvar ajuste de horas.');
+      }
+    } else {
+      const preset = document.getElementById('selLaunchPunchPreset')?.value || 'single';
+      let punches = [];
+      if (preset === 'full_day') {
+        const t1 = document.getElementById('inpFullPunch1')?.value || '';
+        const t2 = document.getElementById('inpFullPunch2')?.value || '';
+        const t3 = document.getElementById('inpFullPunch3')?.value || '';
+        const t4 = document.getElementById('inpFullPunch4')?.value || '';
+        if (t1) punches.push({ time: t1, direction: 'ENTRADA' });
+        if (t2) punches.push({ time: t2, direction: 'SAIDA' });
+        if (t3) punches.push({ time: t3, direction: 'ENTRADA' });
+        if (t4) punches.push({ time: t4, direction: 'SAIDA' });
+      } else {
+        const singleTime = document.getElementById('inpSinglePunchTime')?.value || '';
+        const singleDir = document.getElementById('selSinglePunchDir')?.value || 'ENTRADA';
+        if (singleTime) punches.push({ time: singleTime, direction: singleDir });
+      }
+
+      if (punches.length === 0) {
+        throw new Error('Informe pelo menos um horário de batida.');
+      }
+
+      const res = await apiFetch('/api/rh/lancamentos', {
+        method: 'POST',
+        body: {
+          actionType: 'ADD',
+          employeeId,
+          employeeName,
+          registration,
+          department,
+          startDate,
+          endDate,
+          skipWeekends,
+          punches,
+          reasonType,
+          notes
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Falha ao salvar batidas manuais.');
+      }
+    }
+
+    document.getElementById('modalRhLaunch')?.classList.remove('active');
+    await loadRhReports();
+  } catch (err) {
+    showRhLaunchAlert(`<strong>❌ Erro:</strong> ${escapeHtml(err.message)}`, false);
+  } finally {
+    if (btnSave) {
+      btnSave.disabled = false;
+      btnSave.textContent = '💾 Salvar Lançamento no Banco';
+    }
+  }
+}
+
+// ============================================================================
+// MODAL 2: GERENCIAR BATIDAS & HORAS DE UM DIA ESPECÍFICO (DAY EDITOR)
+// ============================================================================
+function showDayEditorAlert(msg, isSuccess = false) {
+  const el = document.getElementById('dayEditorAlert');
+  if (!el) return;
+  el.style.display = 'block';
+  el.style.background = isSuccess ? '#dcfce7' : '#fee2e2';
+  el.style.border = isSuccess ? '1px solid #86efac' : '1px solid #fca5a5';
+  el.style.color = isSuccess ? '#166534' : '#991b1b';
+  el.innerHTML = msg;
+}
+
+window.openDayEditorModal = async function(employeeName, isoDate, registration = '-', department = 'Geral') {
+  rhState.dayEditorContext = {
+    employeeName,
+    isoDate,
+    registration: registration || '-',
+    department: department || 'Geral'
+  };
+
+  const modal = document.getElementById('modalRhDayEditor');
+  if (!modal) return;
+
+  const alertBox = document.getElementById('dayEditorAlert');
+  if (alertBox) alertBox.style.display = 'none';
+
+  modal.classList.add('active');
+  await refreshDayEditorModalData();
+};
+
+async function refreshDayEditorModalData() {
+  const ctx = rhState.dayEditorContext;
+  if (!ctx) return;
+
+  const titleEl = document.getElementById('dayEditorTitle');
+  const subEl = document.getElementById('dayEditorSubtitle');
+  const dateBR = ctx.isoDate.split('-').reverse().join('/');
+  if (titleEl) titleEl.textContent = `✏️ ${ctx.employeeName} — Dia ${dateBR}`;
+  if (subEl) subEl.textContent = `Matrícula: ${ctx.registration} · Setor: ${ctx.department} · As alterações são salvas no Banco Comercial sem alterar o banco original da catraca.`;
+
+  const tbody = document.getElementById('tbodyDayEditorPunches');
+  if (tbody) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 16px; color: #64748b;">Carregando batidas do dia...</td></tr>`;
+  }
+
+  try {
+    const params = new URLSearchParams({
+      employeeName: ctx.employeeName,
+      date: ctx.isoDate
+    });
+    const res = await apiFetch(`/api/rh/day-details?${params.toString()}`);
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.error || 'Erro ao carregar detalhes do dia.');
+    }
+
+    rhState.dayEditorData = data;
+    renderDayEditorPunchesTable(data.passes || []);
+    populateDayEditorAdjustmentForm(data.dailyAdjustment || null);
+  } catch (err) {
+    showDayEditorAlert(`Erro ao buscar batidas do dia: ${escapeHtml(err.message)}`, false);
+  }
+}
+
+function renderDayEditorPunchesTable(passes) {
+  const tbody = document.getElementById('tbodyDayEditorPunches');
+  if (!tbody) return;
+
+  if (!passes.length) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="4" style="text-align: center; padding: 18px; color: #64748b;">
+          Nenhuma batida registrada na catraca neste dia. Utilize o formulário abaixo para adicionar batidas ou lançar Viagem / Serviço Externo.
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = passes.map((p, idx) => {
+    const isIgnored = !!p.isIgnored;
+    const rowStyle = isIgnored ? 'opacity: 0.55; background: #fef2f2; text-decoration: line-through;' : '';
+
+    let originBadge = '';
+    if (p.origin === 'manual_rh') {
+      originBadge = `<span class="dir-badge" style="background: #e0f2fe; color: #0369a1;">➕ Manual RH (${escapeHtml(p.reasonType)})</span>`;
+    } else if (isIgnored) {
+      originBadge = `<span class="dir-badge out">🚫 Batida Ignorada pelo RH</span>`;
+    } else if (p.isEdited) {
+      originBadge = `<span class="dir-badge" style="background: #fef3c7; color: #b45309;">✏️ Editada RH (Orig: ${escapeHtml(p.originalTimeHMS?.slice(0, 5) || '')})</span>`;
+    } else {
+      originBadge = `<span class="dir-badge in">🟢 Catraca iD Control</span>`;
+    }
+
+    const restoreBtn = (p.origin === 'catraca' && (p.isEdited || isIgnored) && p.lancamentoId)
+      ? `<button type="button" class="btn btn-sm btn-secondary" onclick="restoreOrDeleteDayPass('${escapeJsAttr(p.lancamentoId)}')" title="Restaurar horário original da catraca">♻️ Restaurar</button>`
+      : '';
+
+    const ignoreOrDeleteBtn = p.origin === 'manual_rh'
+      ? `<button type="button" class="btn btn-sm btn-secondary" style="color: #dc2626;" onclick="restoreOrDeleteDayPass('${escapeJsAttr(p.lancamentoId || p.id)}')" title="Excluir esta batida manual">🗑️ Excluir</button>`
+      : !isIgnored
+      ? `<button type="button" class="btn btn-sm btn-secondary" style="color: #b45309;" onclick="ignoreTurnstilePass(${idx})" title="Ignorar esta batida (ex: giro duplicado na catraca)">🚫 Ignorar</button>`
+      : '';
+
+    return `
+      <tr style="${rowStyle}">
+        <td>
+          <input type="time" id="dayPassTime_${idx}" class="form-control" value="${escapeHtml(p.timeHM)}" style="max-width: 120px; font-weight: 700;" ${isIgnored ? 'disabled' : ''}>
+        </td>
+        <td>
+          <select id="dayPassDir_${idx}" class="form-control" style="max-width: 145px;" ${isIgnored ? 'disabled' : ''}>
+            <option value="ENTRADA" ${p.direction === 'ENTRADA' ? 'selected' : ''}>🟢 ENTRADA</option>
+            <option value="SAIDA" ${p.direction === 'SAIDA' ? 'selected' : ''}>🔴 SAÍDA</option>
+          </select>
+        </td>
+        <td>
+          ${originBadge}
+          ${p.notes ? `<div style="font-size: 0.72rem; color: #64748b; margin-top: 2px;">${escapeHtml(p.notes)}</div>` : ''}
+        </td>
+        <td style="text-align: right; white-space: nowrap; display: flex; gap: 6px; justify-content: flex-end;">
+          ${!isIgnored ? `<button type="button" class="btn btn-sm btn-primary" onclick="saveEditedDayPass(${idx})">💾 Salvar Horário</button>` : ''}
+          ${restoreBtn}
+          ${ignoreOrDeleteBtn}
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+window.saveEditedDayPass = async function(idx) {
+  const ctx = rhState.dayEditorContext;
+  const passes = rhState.dayEditorData?.passes || [];
+  const p = passes[idx];
+  if (!ctx || !p) return;
+
+  const newTime = document.getElementById(`dayPassTime_${idx}`)?.value || p.timeHM;
+  const newDir = document.getElementById(`dayPassDir_${idx}`)?.value || p.direction;
+
+  try {
+    const res = await apiFetch('/api/rh/lancamentos', {
+      method: 'POST',
+      body: {
+        actionType: 'EDIT',
+        originalLogId: p.id,
+        employeeName: ctx.employeeName,
+        registration: ctx.registration,
+        department: ctx.department,
+        logDate: ctx.isoDate,
+        logTime: newTime,
+        direction: newDir,
+        reasonType: p.reasonType && p.reasonType !== 'Giro Catraca iD Control' ? p.reasonType : 'Ajuste de Horário pelo RH',
+        notes: p.notes || ''
+      }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erro ao editar batida.');
+
+    showDayEditorAlert(`✅ Batida atualizada para <strong>${escapeHtml(newTime)} (${escapeHtml(newDir)})</strong>!`, true);
+    await refreshDayEditorModalData();
+    await loadRhReports();
+  } catch (err) {
+    showDayEditorAlert(`❌ ${escapeHtml(err.message)}`, false);
+  }
+};
+
+window.ignoreTurnstilePass = async function(idx) {
+  const ctx = rhState.dayEditorContext;
+  const passes = rhState.dayEditorData?.passes || [];
+  const p = passes[idx];
+  if (!ctx || !p) return;
+
+  try {
+    const res = await apiFetch('/api/rh/lancamentos', {
+      method: 'POST',
+      body: {
+        actionType: 'IGNORE',
+        originalLogId: p.id,
+        employeeName: ctx.employeeName,
+        registration: ctx.registration,
+        department: ctx.department,
+        logDate: ctx.isoDate,
+        logTime: p.timeHM,
+        direction: p.direction,
+        reasonType: 'Batida Duplicada / Ignorada pelo RH'
+      }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erro ao ignorar batida.');
+
+    showDayEditorAlert(`🚫 Batida das ${escapeHtml(p.timeHM)} marcada como ignorada.`, true);
+    await refreshDayEditorModalData();
+    await loadRhReports();
+  } catch (err) {
+    showDayEditorAlert(`❌ ${escapeHtml(err.message)}`, false);
+  }
+};
+
+window.restoreOrDeleteDayPass = async function(lancamentoId) {
+  if (!lancamentoId) return;
+  try {
+    const res = await apiFetch(`/api/rh/lancamentos/${encodeURIComponent(lancamentoId)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Erro ao remover/restaurar batida.');
+    }
+    showDayEditorAlert('♻️ Registro atualizado com sucesso!', true);
+    await refreshDayEditorModalData();
+    await loadRhReports();
+  } catch (err) {
+    showDayEditorAlert(`❌ ${escapeHtml(err.message)}`, false);
+  }
+};
+
+async function quickAddPunchInDay() {
+  const ctx = rhState.dayEditorContext;
+  if (!ctx) return;
+
+  const timeVal = document.getElementById('inpQuickAddPunchTime')?.value || '';
+  const dirVal = document.getElementById('selQuickAddPunchDir')?.value || 'ENTRADA';
+  const reasonVal = document.getElementById('selQuickAddPunchReason')?.value || 'Esquecimento de Batida';
+
+  if (!timeVal) {
+    return showDayEditorAlert('Informe o horário da nova batida.', false);
+  }
+
+  try {
+    const res = await apiFetch('/api/rh/lancamentos', {
+      method: 'POST',
+      body: {
+        actionType: 'ADD',
+        employeeName: ctx.employeeName,
+        registration: ctx.registration,
+        department: ctx.department,
+        startDate: ctx.isoDate,
+        endDate: ctx.isoDate,
+        punches: [{ time: timeVal, direction: dirVal }],
+        reasonType: reasonVal
+      }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erro ao adicionar batida.');
+
+    showDayEditorAlert(`✅ Nova batida (${escapeHtml(timeVal)} - ${escapeHtml(dirVal)}) adicionada neste dia!`, true);
+    await refreshDayEditorModalData();
+    await loadRhReports();
+  } catch (err) {
+    showDayEditorAlert(`❌ ${escapeHtml(err.message)}`, false);
+  }
+}
+
+function updateDayEditorAdjModeUi() {
+  const selMode = document.getElementById('selDayEditorAdjMode');
+  const grpHours = document.getElementById('grpDayEditorHours');
+  if (!selMode || !grpHours) return;
+
+  if (selMode.value === 'FIXED_HOURS' || selMode.value === 'BONUS_HOURS') {
+    grpHours.style.display = 'block';
+  } else {
+    grpHours.style.display = 'none';
+  }
+}
+
+function populateDayEditorAdjustmentForm(adj) {
+  const selMode = document.getElementById('selDayEditorAdjMode');
+  const inpHM = document.getElementById('inpDayEditorHoursHM');
+  const selReason = document.getElementById('selDayEditorReason');
+  const inpNotes = document.getElementById('inpDayEditorNotes');
+  const btnRemove = document.getElementById('btnRemoveDayAdjustment');
+
+  if (!adj) {
+    if (selMode) selMode.value = 'PUNCHES';
+    if (inpHM) inpHM.value = '08:48';
+    if (selReason) selReason.value = 'Viagem a Trabalho';
+    if (inpNotes) inpNotes.value = '';
+    if (btnRemove) btnRemove.style.display = 'none';
+  } else {
+    if (selMode) selMode.value = adj.adjustmentMode || 'FIXED_HOURS';
+    if (inpHM) {
+      const mins = adj.adjustmentMode === 'BONUS_HOURS' ? adj.bonusMinutes : adj.manualWorkedMinutes;
+      inpHM.value = minutesToHMInput(mins || 528);
+    }
+    if (selReason && adj.reasonType) selReason.value = adj.reasonType;
+    if (inpNotes) inpNotes.value = adj.notes || '';
+    if (btnRemove) btnRemove.style.display = 'inline-flex';
+  }
+
+  updateDayEditorAdjModeUi();
+}
+
+async function saveDayEditorAdjustment() {
+  const ctx = rhState.dayEditorContext;
+  if (!ctx) return;
+
+  const adjustmentMode = document.getElementById('selDayEditorAdjMode')?.value || 'PUNCHES';
+  const hmVal = document.getElementById('inpDayEditorHoursHM')?.value || '08:48';
+  const reasonType = document.getElementById('selDayEditorReason')?.value || 'Viagem a Trabalho';
+  const notes = document.getElementById('inpDayEditorNotes')?.value.trim() || '';
+
+  // Se escolheu PUNCHES e não digitou observação, remove eventual ajuste diário para voltar ao cálculo automático das batidas
+  if (adjustmentMode === 'PUNCHES' && !notes) {
+    return removeDayEditorAdjustment();
+  }
+
+  const minutesVal = parseHMToMinutes(hmVal);
+
+  try {
+    const res = await apiFetch('/api/rh/ajustes-diarios', {
+      method: 'POST',
+      body: {
+        employeeName: ctx.employeeName,
+        registration: ctx.registration,
+        department: ctx.department,
+        startDate: ctx.isoDate,
+        endDate: ctx.isoDate,
+        adjustmentMode,
+        manualWorkedMinutes: adjustmentMode === 'FIXED_HOURS' ? minutesVal : 0,
+        bonusMinutes: adjustmentMode === 'BONUS_HOURS' ? minutesVal : 0,
+        reasonType,
+        notes
+      }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erro ao salvar ajuste diário.');
+
+    showDayEditorAlert('✅ Ajuste de horas do dia salvo com sucesso no Banco Comercial!', true);
+    await refreshDayEditorModalData();
+    await loadRhReports();
+  } catch (err) {
+    showDayEditorAlert(`❌ ${escapeHtml(err.message)}`, false);
+  }
+}
+
+async function removeDayEditorAdjustment() {
+  const ctx = rhState.dayEditorContext;
+  if (!ctx) return;
+
+  const adjId = `${ctx.employeeName}___${ctx.isoDate}`;
+  try {
+    const res = await apiFetch(`/api/rh/ajustes-diarios/${encodeURIComponent(adjId)}`, {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error || 'Erro ao remover ajuste diário.');
+    }
+    showDayEditorAlert('♻️ Ajuste diário removido. O dia voltou a ser calculado pelas batidas.', true);
+    await refreshDayEditorModalData();
+    await loadRhReports();
+  } catch (err) {
+    showDayEditorAlert(`❌ ${escapeHtml(err.message)}`, false);
+  }
 }
 
 // ============================================================================
@@ -631,7 +1398,7 @@ async function testAndDiscoverIdControlDb() {
     const payload = collectIdControlConfigFromForm();
     const res = await apiFetch('/api/rh/test-connection', {
       method: 'POST',
-      body: JSON.stringify(payload)
+      body: payload
     });
     const data = await res.json();
 
@@ -698,7 +1465,7 @@ async function saveIdControlConfig() {
     const payload = collectIdControlConfigFromForm();
     const res = await apiFetch('/api/rh/config', {
       method: 'POST',
-      body: JSON.stringify(payload)
+      body: payload
     });
     const data = await res.json();
 
@@ -859,6 +1626,46 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Exportar CSV e Imprimir/PDF
   document.getElementById('btnExportCsv')?.addEventListener('click', exportActiveTableToCsv);
   document.getElementById('btnPrintReport')?.addEventListener('click', () => window.print());
+
+  // Modal 1: Lançar Ponto / Viagem / Serviço Externo
+  document.getElementById('btnOpenRhLaunchModal')?.addEventListener('click', () => openRhLaunchModal());
+  document.getElementById('btnStatusBarLaunch')?.addEventListener('click', () => openRhLaunchModal());
+  document.getElementById('btnCloseRhLaunch')?.addEventListener('click', () => {
+    document.getElementById('modalRhLaunch')?.classList.remove('active');
+  });
+  document.getElementById('btnCancelRhLaunch')?.addEventListener('click', () => {
+    document.getElementById('modalRhLaunch')?.classList.remove('active');
+  });
+  document.getElementById('tabBtnLaunchModeHours')?.addEventListener('click', () => setLaunchMode('hours'));
+  document.getElementById('tabBtnLaunchModePunches')?.addEventListener('click', () => setLaunchMode('punches'));
+  document.getElementById('selLaunchHoursType')?.addEventListener('change', updateLaunchHoursTypeUi);
+  document.getElementById('selLaunchPunchPreset')?.addEventListener('change', updateLaunchPunchPresetUi);
+  document.getElementById('chkLaunchNewEmployee')?.addEventListener('change', e => {
+    const isNew = e.target.checked;
+    const boxExisting = document.getElementById('boxLaunchExistingEmployee');
+    const boxCustom = document.getElementById('boxLaunchCustomEmployee');
+    if (boxExisting) boxExisting.style.display = isNew ? 'none' : 'block';
+    if (boxCustom) boxCustom.style.display = isNew ? 'grid' : 'none';
+  });
+  document.getElementById('inpLaunchStartDate')?.addEventListener('change', e => {
+    const inpEnd = document.getElementById('inpLaunchEndDate');
+    if (inpEnd && (!inpEnd.value || inpEnd.value < e.target.value)) {
+      inpEnd.value = e.target.value;
+    }
+  });
+  document.getElementById('btnSaveRhLaunch')?.addEventListener('click', saveRhLaunch);
+
+  // Modal 2: Editor de Batidas e Horas do Dia
+  document.getElementById('btnCloseDayEditor')?.addEventListener('click', () => {
+    document.getElementById('modalRhDayEditor')?.classList.remove('active');
+  });
+  document.getElementById('btnCloseDayEditorBottom')?.addEventListener('click', () => {
+    document.getElementById('modalRhDayEditor')?.classList.remove('active');
+  });
+  document.getElementById('btnQuickAddPunchInDay')?.addEventListener('click', quickAddPunchInDay);
+  document.getElementById('selDayEditorAdjMode')?.addEventListener('change', updateDayEditorAdjModeUi);
+  document.getElementById('btnSaveDayEditorAdj')?.addEventListener('click', saveDayEditorAdjustment);
+  document.getElementById('btnRemoveDayAdjustment')?.addEventListener('click', removeDayEditorAdjustment);
 
   // Modal de configuração do banco iD Control
   document.getElementById('btnOpenIdControlConfig')?.addEventListener('click', openIdControlConfigModal);

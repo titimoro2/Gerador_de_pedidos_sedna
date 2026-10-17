@@ -238,6 +238,52 @@ async function createTablesIfNotExist() {
       PRIMARY KEY (\`id\`),
       KEY \`idx_logs_action\` (\`action\`),
       KEY \`idx_logs_created\` (\`created_at\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    // 9. rh_ponto_lancamentos (Batidas manuais do RH, edições de batidas da catraca e exclusões/desconsiderações)
+    `CREATE TABLE IF NOT EXISTS \`rh_ponto_lancamentos\` (
+      \`id\` VARCHAR(64) NOT NULL,
+      \`action_type\` VARCHAR(32) NOT NULL DEFAULT 'ADD',
+      \`original_log_id\` VARCHAR(128) DEFAULT NULL,
+      \`employee_id\` VARCHAR(64) NOT NULL,
+      \`employee_name\` VARCHAR(150) NOT NULL,
+      \`registration\` VARCHAR(64) DEFAULT NULL,
+      \`department\` VARCHAR(100) DEFAULT NULL,
+      \`log_date\` VARCHAR(10) NOT NULL,
+      \`log_time\` VARCHAR(8) NOT NULL,
+      \`direction\` VARCHAR(16) NOT NULL DEFAULT 'ENTRADA',
+      \`reason_type\` VARCHAR(64) DEFAULT 'Ajuste Manual RH',
+      \`notes\` TEXT DEFAULT NULL,
+      \`updated_by\` VARCHAR(100) DEFAULT NULL,
+      \`data_json\` LONGTEXT DEFAULT NULL,
+      \`updated_at\` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      \`created_at\` DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`id\`),
+      KEY \`idx_rh_lanc_emp_date\` (\`employee_name\`, \`log_date\`),
+      KEY \`idx_rh_lanc_orig\` (\`original_log_id\`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`,
+
+    // 10. rh_jornada_diaria_ajustes (Ajustes de horas diárias, viagens, serviço externo e abonos lançados pelo RH)
+    `CREATE TABLE IF NOT EXISTS \`rh_jornada_diaria_ajustes\` (
+      \`id\` VARCHAR(160) NOT NULL,
+      \`employee_id\` VARCHAR(64) NOT NULL,
+      \`employee_name\` VARCHAR(150) NOT NULL,
+      \`registration\` VARCHAR(64) DEFAULT NULL,
+      \`department\` VARCHAR(100) DEFAULT NULL,
+      \`work_date\` VARCHAR(10) NOT NULL,
+      \`adjustment_mode\` VARCHAR(32) NOT NULL DEFAULT 'PUNCHES',
+      \`manual_worked_minutes\` INT DEFAULT 0,
+      \`bonus_minutes\` INT DEFAULT 0,
+      \`custom_expected_minutes\` INT DEFAULT NULL,
+      \`reason_type\` VARCHAR(64) DEFAULT 'Serviço Externo / Viagem',
+      \`notes\` TEXT DEFAULT NULL,
+      \`updated_by\` VARCHAR(100) DEFAULT NULL,
+      \`data_json\` LONGTEXT DEFAULT NULL,
+      \`updated_at\` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      \`created_at\` DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (\`id\`),
+      KEY \`idx_rh_adj_date\` (\`work_date\`),
+      KEY \`idx_rh_adj_emp\` (\`employee_name\`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;`
   ];
 

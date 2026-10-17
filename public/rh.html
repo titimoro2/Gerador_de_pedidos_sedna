@@ -446,6 +446,10 @@
       </div>
 
       <div class="nav-actions" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <button type="button" id="btnOpenRhLaunchModal" class="btn btn-primary btn-sm" style="background: #0284c7; border-color: #0284c7;" title="Adicionar batidas manuais, lançar viagens, serviço externo ou abonar horas">
+          ➕ Lançar Ponto / Viagem / Externo
+        </button>
+
         <button type="button" id="btnOpenIdControlConfig" class="btn btn-secondary btn-sm">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
           Banco iD Control
@@ -456,7 +460,7 @@
           Exportar Excel
         </button>
 
-        <button type="button" id="btnPrintReport" class="btn btn-primary btn-sm" title="Imprimir ou Salvar em PDF o relatório selecionado">
+        <button type="button" id="btnPrintReport" class="btn btn-secondary btn-sm" title="Imprimir ou Salvar em PDF o relatório selecionado">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
           Imprimir / PDF
         </button>
@@ -488,18 +492,21 @@
 
   <main class="rh-container">
 
-    <!-- Barra de Status da Conexão com a Catraca iD Control -->
+    <!-- Barra de Status das 2 Conexões: Catraca iD Control + Banco Comercial RH -->
     <div class="rh-status-bar">
       <div class="rh-status-left">
         <span class="status-dot" id="idControlStatusDot"></span>
         <div>
-          <strong id="idControlStatusTitle" style="font-size: 0.9rem;">Verificando conexão com o banco iD Control...</strong>
-          <div id="idControlStatusDesc" style="font-size: 0.78rem; color: #64748b;">Consultando registros de giros da catraca</div>
+          <strong id="idControlStatusTitle" style="font-size: 0.9rem;">Verificando conexões de banco de dados do RH...</strong>
+          <div id="idControlStatusDesc" style="font-size: 0.78rem; color: #64748b;">Conexão 1: Catraca iD Control &middot; Conexão 2: Banco do Sistema (Ajustes/Viagens)</div>
         </div>
       </div>
-      <div style="display: flex; align-items: center; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <button type="button" id="btnStatusBarLaunch" class="btn btn-sm btn-primary" style="background: #0284c7; border-color: #0284c7;">
+          ✈️ Lançar Viagem / Serviço Externo / Ponto
+        </button>
         <button type="button" id="btnRefreshData" class="btn btn-sm btn-secondary">
-          🔄 Atualizar Giros da Catraca
+          🔄 Atualizar Giros
         </button>
       </div>
     </div>
@@ -694,12 +701,13 @@
               <th>Dia da Semana</th>
               <th>Funcionário</th>
               <th>Setor</th>
-              <th>Pares de Entrada &rarr; Saída Registrados na Catraca</th>
+              <th>Pares de Entrada &rarr; Saída Registrados na Catraca / RH</th>
               <th>Intervalo / Almoço</th>
               <th>Horas Trabalhadas (Pareado)</th>
               <th>Meta do Dia</th>
               <th>Saldo Diário</th>
-              <th>Status</th>
+              <th>Status / Justificativa</th>
+              <th class="no-print" style="text-align: right;">Ação</th>
             </tr>
           </thead>
           <tbody id="tbodyPaired"></tbody>
@@ -712,7 +720,7 @@
       <div class="rh-panel-header">
         <div>
           <h3>⏳ Relatório 2: Apuração pela 1ª Batida até a Última Batida do Dia</h3>
-          <span class="text-muted" style="font-size: 0.8rem;">Calcula o tempo decorrido entre o primeiro giro do dia e o último giro do dia na catraca</span>
+          <span class="text-muted" style="font-size: 0.8rem;">Calcula o tempo decorrido entre o primeiro giro do dia e o último giro do dia na catraca (+ ajustes de viagem/serviço externo)</span>
         </div>
       </div>
       <div class="rh-table-responsive">
@@ -730,6 +738,7 @@
               <th>Desconto Almoço</th>
               <th>Horas Líquidas (1ª à Última)</th>
               <th>Saldo Diário</th>
+              <th class="no-print" style="text-align: right;">Ação</th>
             </tr>
           </thead>
           <tbody id="tbodyDirect"></tbody>
@@ -741,8 +750,8 @@
     <section id="panel-raw" class="rh-report-panel">
       <div class="rh-panel-header">
         <div>
-          <h3>📋 Relatório 3: Registros Brutos da Catraca iD Control (Giro a Giro)</h3>
-          <span class="text-muted" style="font-size: 0.8rem;">Listagem integral de cada passagem registrada na catraca com horário exato</span>
+          <h3>📋 Relatório 3: Registros Brutos da Catraca iD Control &amp; Lançamentos do RH (Giro a Giro)</h3>
+          <span class="text-muted" style="font-size: 0.8rem;">Listagem integral de cada passagem registrada na catraca ou adicionada/editada pelo RH</span>
         </div>
         <div class="no-print" style="display: flex; align-items: center; gap: 8px;">
           <label for="fltDirectionRaw" style="font-size: 0.78rem; font-weight: 600;">Sentido:</label>
@@ -765,7 +774,8 @@
               <th>Matrícula</th>
               <th>Setor</th>
               <th>Sentido do Giro</th>
-              <th>Equipamento / Catraca</th>
+              <th>Origem / Justificativa</th>
+              <th class="no-print" style="text-align: right;">Ação</th>
             </tr>
           </thead>
           <tbody id="tbodyRaw"></tbody>
@@ -774,6 +784,280 @@
     </section>
 
   </main>
+
+  <!-- MODAL 1: LANÇAR PONTO MANUAL / VIAGEM A TRABALHO / SERVIÇO EXTERNO / ABONO -->
+  <div class="modal-overlay" id="modalRhLaunch">
+    <div class="modal-card" style="max-width: 720px; width: 95%;">
+      <div class="modal-header flex-between">
+        <div>
+          <h3 style="margin: 0; font-size: 1.2rem; color: var(--rh-primary);">✈️ Lançar Ponto / Viagem / Serviço Externo</h3>
+          <span class="text-muted" style="font-size: 0.8rem;">Adicione batidas de ponto ou ajuste as horas de dias em viagem, serviço externo ou abono (Salvo no Banco do Sistema)</span>
+        </div>
+        <button type="button" id="btnCloseRhLaunch" class="btn-icon" style="font-size: 1.5rem; background: none; border: none; cursor: pointer;">&times;</button>
+      </div>
+      <div class="modal-body" style="max-height: 80vh; overflow-y: auto; padding-top: 12px;">
+        <div id="rhLaunchAlert" style="display: none; margin-bottom: 12px; padding: 10px 14px; border-radius: 6px; font-size: 0.84rem;"></div>
+
+        <!-- Seleção do Funcionário -->
+        <div style="background: #f8fafc; padding: 14px; border-radius: 8px; border: 1px solid #cbd5e1; margin-bottom: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+            <label style="font-weight: 700; font-size: 0.85rem; color: var(--rh-primary);">1. Funcionário *</label>
+            <label style="font-size: 0.78rem; display: flex; align-items: center; gap: 6px; cursor: pointer; color: #0284c7; font-weight: 600;">
+              <input type="checkbox" id="chkLaunchNewEmployee">
+              <span>Digitar funcionário manualmente (fora da lista)</span>
+            </label>
+          </div>
+
+          <div id="boxLaunchExistingEmployee">
+            <select id="selLaunchEmployee" class="form-control">
+              <option value="">Selecione um funcionário...</option>
+            </select>
+          </div>
+
+          <div id="boxLaunchCustomEmployee" style="display: none; grid-template-columns: 2fr 1fr 1fr; gap: 10px;">
+            <div>
+              <label style="font-size: 0.75rem; font-weight: 600;">Nome Completo *</label>
+              <input type="text" id="inpLaunchEmpName" class="form-control" placeholder="Ex: João Pedro da Silva">
+            </div>
+            <div>
+              <label style="font-size: 0.75rem; font-weight: 600;">Matrícula</label>
+              <input type="text" id="inpLaunchEmpReg" class="form-control" placeholder="MAT-0110">
+            </div>
+            <div>
+              <label style="font-size: 0.75rem; font-weight: 600;">Setor</label>
+              <input type="text" id="inpLaunchEmpDept" class="form-control" placeholder="Montagem / Externo">
+            </div>
+          </div>
+        </div>
+
+        <!-- Período (Data Única ou De / Até para Viagens) e Motivo -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 14px;">
+          <div class="form-group">
+            <label>Data Inicial (ou Dia Único) *</label>
+            <input type="date" id="inpLaunchStartDate" class="form-control">
+          </div>
+          <div class="form-group">
+            <label>Data Final (Opcional p/ Viagem)</label>
+            <input type="date" id="inpLaunchEndDate" class="form-control">
+          </div>
+          <div class="form-group">
+            <label>Motivo / Classificação *</label>
+            <select id="selLaunchReason" class="form-control">
+              <option value="Viagem a Trabalho">✈️ Viagem a Trabalho</option>
+              <option value="Serviço Externo">🚐 Serviço Externo / Cliente</option>
+              <option value="Esquecimento de Batida">🪪 Esquecimento de Crachá / Batida</option>
+              <option value="Atestado / Consulta">🏥 Atestado Médico / Consulta</option>
+              <option value="Home Office">🏠 Home Office / Trabalho Remoto</option>
+              <option value="Ajuste Manual RH">⚙️ Ajuste Manual do RH</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+          <label style="display: inline-flex; align-items: center; gap: 8px; font-size: 0.82rem; cursor: pointer; color: #334155;">
+            <input type="checkbox" id="chkLaunchSkipWeekends" checked>
+            <span>Ao lançar período de vários dias (ex: viagem), ignorar Sábados e Domingos automaticamente</span>
+          </label>
+        </div>
+
+        <!-- Escolha do Tipo de Lançamento -->
+        <div style="border: 1px solid #cbd5e1; border-radius: 8px; overflow: hidden; margin-bottom: 14px;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; background: #f1f5f9; border-bottom: 1px solid #cbd5e1;">
+            <button type="button" id="tabBtnLaunchModeHours" class="btn" style="border-radius: 0; font-weight: 700; background: #ffffff; color: #0284c7; border-bottom: 3px solid #0284c7;">
+              ⏱️ Opção A: Definir / Somar Horas no Dia
+            </button>
+            <button type="button" id="tabBtnLaunchModePunches" class="btn" style="border-radius: 0; font-weight: 600; background: #f1f5f9; color: #475569;">
+              📍 Opção B: Adicionar Batida(s) de Ponto
+            </button>
+          </div>
+
+          <!-- Painel Opção A: Definir ou Somar Horas no Dia -->
+          <div id="panelLaunchModeHours" style="padding: 16px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
+              <div class="form-group">
+                <label>Como aplicar as horas no(s) dia(s)?</label>
+                <select id="selLaunchHoursType" class="form-control">
+                  <option value="FIXED_HOURS">Definir Jornada Fechada no Dia (Ex: Dia inteiro em Viagem/Externo)</option>
+                  <option value="BONUS_HOURS">Somar Horas Externas às Batidas da Catraca (Ex: Saiu p/ serviço externo)</option>
+                  <option value="ABONO_FALTA">Abonar Dia Integral (Atestado / Folga Justificada sem desconto)</option>
+                </select>
+              </div>
+              <div class="form-group" id="grpLaunchHoursInput">
+                <label id="lblLaunchHoursInput">Quantidade de Horas por Dia (HH:MM) *</label>
+                <input type="time" id="inpLaunchHoursHM" class="form-control" value="08:48">
+                <small class="text-muted" style="font-size: 0.74rem;">Padrão 44h semanais: <code>08:48</code> | Padrão 8h: <code>08:00</code></small>
+              </div>
+            </div>
+          </div>
+
+          <!-- Painel Opção B: Adicionar Batidas de Ponto -->
+          <div id="panelLaunchModePunches" style="padding: 16px; display: none;">
+            <div class="form-group" style="margin-bottom: 12px;">
+              <label>Modo de Inclusão de Batidas</label>
+              <select id="selLaunchPunchPreset" class="form-control">
+                <option value="SINGLE">Adicionar 1 Batida Específica (Ex: Esqueceu de bater saída ou entrada)</option>
+                <option value="FULL_DAY">Adicionar 4 Batidas do Dia Completo (Entrada, Saída Almoço, Volta, Saída Final)</option>
+              </select>
+            </div>
+
+            <!-- 1 Batida -->
+            <div id="boxLaunchSinglePunch" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+              <div class="form-group">
+                <label>Horário da Batida (HH:MM) *</label>
+                <input type="time" id="inpSinglePunchTime" class="form-control" value="17:48">
+              </div>
+              <div class="form-group">
+                <label>Sentido</label>
+                <select id="selSinglePunchDir" class="form-control">
+                  <option value="ENTRADA">🟢 ENTRADA</option>
+                  <option value="SAIDA" selected>🔴 SAÍDA</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- 4 Batidas (Dia Completo) -->
+            <div id="boxLaunchFullDayPunches" style="display: none; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px;">
+              <div class="form-group">
+                <label>1ª Entrada (Manhã)</label>
+                <input type="time" id="inpFullPunch1" class="form-control" value="07:50">
+              </div>
+              <div class="form-group">
+                <label>1ª Saída (Almoço)</label>
+                <input type="time" id="inpFullPunch2" class="form-control" value="12:00">
+              </div>
+              <div class="form-group">
+                <label>2ª Entrada (Retorno)</label>
+                <input type="time" id="inpFullPunch3" class="form-control" value="13:00">
+              </div>
+              <div class="form-group">
+                <label>2ª Saída (Final)</label>
+                <input type="time" id="inpFullPunch4" class="form-control" value="17:48">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Observação / Justificativa do RH (Opcional)</label>
+          <input type="text" id="inpLaunchNotes" class="form-control" placeholder="Ex: Viagem técnica para atendimento externo ao cliente / Esquecimento confirmado pelo gestor...">
+        </div>
+
+        <div class="modal-actions flex-between" style="margin-top: 18px; padding-top: 12px; border-top: 1px solid #e2e8f0;">
+          <button type="button" id="btnCancelRhLaunch" class="btn btn-secondary">Cancelar</button>
+          <button type="button" id="btnSaveRhLaunch" class="btn btn-primary">💾 Salvar Lançamento no Sistema</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 2: EDITOR DETALHADO DO DIA (EDITAR / EXCLUIR BATIDAS E AJUSTAR HORAS DE UM DIA) -->
+  <div class="modal-overlay" id="modalRhDayEditor">
+    <div class="modal-card" style="max-width: 780px; width: 95%;">
+      <div class="modal-header flex-between">
+        <div>
+          <h3 id="dayEditorTitle" style="margin: 0; font-size: 1.18rem; color: var(--rh-primary);">✏️ Gerenciar Batidas &amp; Horas do Dia</h3>
+          <span id="dayEditorSubtitle" class="text-muted" style="font-size: 0.82rem;">Edite horários, adicione batidas faltantes ou ajuste horas de serviço externo/viagem</span>
+        </div>
+        <button type="button" id="btnCloseDayEditor" class="btn-icon" style="font-size: 1.5rem; background: none; border: none; cursor: pointer;">&times;</button>
+      </div>
+      <div class="modal-body" style="max-height: 80vh; overflow-y: auto; padding-top: 12px;">
+        <div id="dayEditorAlert" style="display: none; margin-bottom: 12px; padding: 10px 14px; border-radius: 6px; font-size: 0.84rem;"></div>
+
+        <!-- Seção 1: Lista de Batidas do Dia (Catraca + Manuais) -->
+        <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px; margin-bottom: 16px;">
+          <h4 style="margin: 0 0 10px; font-size: 0.95rem; color: var(--rh-primary);">📍 Batidas Registradas neste Dia</h4>
+          <div class="rh-table-responsive">
+            <table class="rh-table" style="font-size: 0.82rem;">
+              <thead>
+                <tr>
+                  <th>Origem</th>
+                  <th>Horário (HH:MM:SS)</th>
+                  <th>Sentido</th>
+                  <th>Motivo / Obs</th>
+                  <th style="text-align: right;">Ação</th>
+                </tr>
+              </thead>
+              <tbody id="tbodyDayEditorPunches"></tbody>
+            </table>
+          </div>
+
+          <!-- Adicionar nova batida rápida neste dia -->
+          <div style="margin-top: 12px; padding-top: 12px; border-top: 1px dashed #cbd5e1; display: flex; align-items: end; gap: 10px; flex-wrap: wrap;">
+            <div>
+              <label style="font-size: 0.74rem; font-weight: 700; display: block; margin-bottom: 3px;">Nova Batida (Hora)</label>
+              <input type="time" id="inpQuickAddPunchTime" class="form-control" style="height: 34px; padding: 4px 8px;" value="17:48">
+            </div>
+            <div>
+              <label style="font-size: 0.74rem; font-weight: 700; display: block; margin-bottom: 3px;">Sentido</label>
+              <select id="selQuickAddPunchDir" class="form-control" style="height: 34px; padding: 4px 8px;">
+                <option value="ENTRADA">🟢 ENTRADA</option>
+                <option value="SAIDA" selected>🔴 SAÍDA</option>
+              </select>
+            </div>
+            <div style="flex: 1; min-width: 160px;">
+              <label style="font-size: 0.74rem; font-weight: 700; display: block; margin-bottom: 3px;">Motivo</label>
+              <select id="selQuickAddPunchReason" class="form-control" style="height: 34px; padding: 4px 8px;">
+                <option value="Esquecimento de Batida">🪪 Esquecimento de Batida</option>
+                <option value="Serviço Externo">🚐 Serviço Externo</option>
+                <option value="Viagem a Trabalho">✈️ Viagem a Trabalho</option>
+                <option value="Ajuste Manual RH">⚙️ Ajuste Manual RH</option>
+              </select>
+            </div>
+            <button type="button" id="btnQuickAddPunchInDay" class="btn btn-sm btn-primary" style="height: 34px;">
+              ➕ Adicionar Batida
+            </button>
+          </div>
+        </div>
+
+        <!-- Seção 2: Ajuste Direto nas Horas do Dia (Viagem / Serviço Externo / Abono) -->
+        <div style="background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; padding: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h4 style="margin: 0; font-size: 0.95rem; color: var(--rh-primary);">⏱️ Ajuste de Horas do Dia (Viagem / Serviço Externo / Abono)</h4>
+            <button type="button" id="btnRemoveDayAdjustment" class="btn btn-sm btn-outline-danger" style="display: none;">
+              🗑️ Remover Ajuste de Horas
+            </button>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px;">
+            <div class="form-group">
+              <label>Modo de Cálculo neste Dia</label>
+              <select id="selDayEditorAdjMode" class="form-control">
+                <option value="PUNCHES">Padrão (Calcular pelas Batidas acima)</option>
+                <option value="FIXED_HOURS">Definir Horas Trabalhadas Fixas no Dia</option>
+                <option value="BONUS_HOURS">Somar Horas Externas às Batidas (+HH:MM)</option>
+                <option value="ABONO_FALTA">Abonar Dia / Atestado (Sem saldo negativo)</option>
+              </select>
+            </div>
+            <div class="form-group" id="grpDayEditorHours">
+              <label id="lblDayEditorHours">Horas (HH:MM)</label>
+              <input type="time" id="inpDayEditorHoursHM" class="form-control" value="08:48">
+            </div>
+            <div class="form-group">
+              <label>Motivo / Classificação</label>
+              <select id="selDayEditorReason" class="form-control">
+                <option value="Viagem a Trabalho">✈️ Viagem a Trabalho</option>
+                <option value="Serviço Externo">🚐 Serviço Externo / Cliente</option>
+                <option value="Esquecimento de Batida">🪪 Esquecimento de Batida</option>
+                <option value="Atestado / Consulta">🏥 Atestado / Consulta</option>
+                <option value="Home Office">🏠 Home Office</option>
+                <option value="Ajuste Manual RH">⚙️ Ajuste Manual RH</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group" style="margin-top: 10px;">
+            <label>Observação / Justificativa deste Dia</label>
+            <input type="text" id="inpDayEditorNotes" class="form-control" placeholder="Digite uma justificativa ou observação para ficar registrada no relatório...">
+          </div>
+
+          <div style="margin-top: 14px; display: flex; justify-content: flex-end; gap: 8px;">
+            <button type="button" id="btnCloseDayEditorBottom" class="btn btn-secondary">Fechar</button>
+            <button type="button" id="btnSaveDayEditorAdj" class="btn btn-primary">💾 Salvar Ajuste do Dia</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 
   <!-- MODAL: CONFIGURAÇÃO DO BANCO DE DADOS iD CONTROL (SQL SERVER / MYSQL) -->
   <div class="modal-overlay" id="modalIdControlConfig">
@@ -923,6 +1207,6 @@
     </div>
   </div>
 
-  <script src="/js/rh.js?v=1.1"></script>
+  <script src="/js/rh.js?v=1.2"></script>
 </body>
 </html>
