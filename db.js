@@ -21,7 +21,16 @@ let isConnected = false;
 let lastError = null;
 let lastSyncTime = null;
 
-// Carregar configuração (prioridade: db-config.json > .env / process.env > defaults)
+// Sanitiza estritamente identificadores SQL (nomes de bancos/tabelas) permitindo apenas [a-zA-Z0-9_]
+function sanitizeDbIdentifier(rawName, fallback = 'sedna_pedidos') {
+  const clean = String(rawName || '').trim();
+  if (/^[a-zA-Z0-9_]{1,64}$/.test(clean)) {
+    return clean;
+  }
+  return fallback;
+}
+
+// Carregar configuração (prioridade: db-config.json > .env / process.env > defaults seguros sem root)
 function loadConfig() {
   let fileConfig = {};
   if (fs.existsSync(CONFIG_FILE)) {
@@ -39,19 +48,29 @@ function loadConfig() {
 
   return {
     enabled: isEnabled,
-    host: fileConfig.host || process.env.DB_HOST || 'localhost',
-    port: parseInt(fileConfig.port || process.env.DB_PORT || 3306),
-    user: fileConfig.user || process.env.DB_USER || 'root',
-    password: fileConfig.password !== undefined ? fileConfig.password : (process.env.DB_PASSWORD || ''),
-    database: fileConfig.database || process.env.DB_NAME || 'sedna_pedidos',
+    host: String(fileConfig.host || process.env.DB_HOST || '127.0.0.1').trim(),
+    port: parseInt(fileConfig.port || process.env.DB_PORT || 3306, 10),
+    user: String(fileConfig.user || process.env.DB_USER || 'sedna_app').trim(),
+    password: (fileConfig.password !== undefined && fileConfig.password !== '' && fileConfig.password !== '********')
+      ? fileConfig.password
+      : (process.env.DB_PASSWORD || ''),
+    database: sanitizeDbIdentifier(fileConfig.database || process.env.DB_NAME || 'sedna_pedidos', 'sedna_pedidos'),
     autoSync: fileConfig.autoSync !== undefined ? !!fileConfig.autoSync : (process.env.DB_AUTO_SYNC !== 'false')
   };
 }
 
 // Salvar configuração em disco (usado pelo painel administrativo)
-function saveConfig(newConfig) {
+function saveConfig(newConfig = {}) {
   const current = loadConfig();
-  const merged = { ...current, ...newConfig };
+  const merged = {
+    ...current,
+    ...newConfig,
+    database: sanitizeDbIdentifier(newConfig.database || current.database, 'sedna_pedidos')
+  };
+  // Se a senha vier mascarada ou vazia do painel e já existir senha configurada, preserva a atual
+  if (newConfig.password === '********' || (newConfig.password === '' && current.password)) {
+    merged.password = current.password;
+  }
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2), 'utf-8');
   // Reinicializa pool com a nova configuração
   closePool();
@@ -69,7 +88,7 @@ async function closePool() {
   }
 }
 
-// Inicializar Pool e Tabelas
+// Inicializar Pool e Tabelas (compatível com usuário de menor privilégio sem CREATE/ALTER)
 async function initDb() {
   const config = loadConfig();
   if (!config.enabled) {
@@ -80,42 +99,52 @@ async function initDb() {
   }
 
   try {
-    // 1. Tentar conectar sem especificar o banco de dados para poder criar se não existir
-    const rootConn = await mysql.createConnection({
-      host: config.host,
-      port: config.port,
-      user: config.user,
-      password: config.password,
-      connectTimeout: 5000
-    });
+    const safeDatabase = sanitizeDbIdentifier(config.database, 'sedna_pedidos');
 
-    await rootConn.query(`CREATE DATABASE IF NOT EXISTS \`${config.database}\` DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_unicode_ci`);
-    await rootConn.end();
+    // 1. Tentar criar o banco apenas se o usuário tiver privilégio administrativo;
+    // caso seja o usuário dedicado de menor privilégio (sedna_app), segue direto para o banco existente.
+    try {
+      const bootstrapConn = await mysql.createConnection({
+        host: config.host,
+        port: config.port,
+        user: config.user,
+        password: config.password,
+        connectTimeout: 4000
+      });
+      await bootstrapConn.query(`CREATE DATABASE IF NOT EXISTS \`${safeDatabase}\` DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_unicode_ci`);
+      await bootstrapConn.end();
+    } catch (_) {
+      // Usuário com princípio do menor privilégio (apenas SELECT, INSERT, UPDATE, DELETE) não possui CREATE DATABASE
+    }
 
-    // 2. Criar pool de conexões apontando para o banco
+    // 2. Criar pool de conexões apontando para o banco com Prepared Statements habilitados
     pool = mysql.createPool({
       host: config.host,
       port: config.port,
       user: config.user,
       password: config.password,
-      database: config.database,
+      database: safeDatabase,
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0,
       charset: 'utf8mb4',
-      connectTimeout: 5000
+      connectTimeout: 5000,
+      namedPlaceholders: false
     });
 
-    // 3. Testar conexão do pool
+    // 3. Testar conexão do pool via Prepared Statement
     const conn = await pool.getConnection();
+    await conn.execute('SELECT 1');
     conn.release();
 
-    // 4. Criar tabelas se não existirem
-    await createTablesIfNotExist();
+    // 4. Criar tabelas se não existirem (ignora silenciosamente caso o usuário sedna_app não tenha permissão CREATE TABLE e o setup-security.sql já tenha sido executado)
+    try {
+      await createTablesIfNotExist();
+    } catch (_) {}
 
     isConnected = true;
     lastError = null;
-    console.log(`[MySQL 5.7 Backup] Conectado com sucesso em ${config.host}:${config.port}/${config.database}`);
+    console.log(`[MySQL 5.7 Backup] Conectado com sucesso em ${config.host}:${config.port}/${safeDatabase} (usuário: ${config.user})`);
     return { connected: true, message: 'Conectado ao MySQL com sucesso!' };
   } catch (err) {
     isConnected = false;
@@ -292,19 +321,23 @@ async function createTablesIfNotExist() {
   }
 }
 
-// Testar conexão com configurações arbitrárias
+// Testar conexão com configurações arbitrárias via Prepared Statement
 async function testConnection(customConfig) {
-  const config = customConfig || loadConfig();
+  const current = loadConfig();
+  const config = customConfig ? { ...current, ...customConfig } : current;
+  if (customConfig && (customConfig.password === '********' || (customConfig.password === '' && current.password))) {
+    config.password = current.password;
+  }
   try {
     const conn = await mysql.createConnection({
-      host: config.host,
-      port: parseInt(config.port || 3306),
-      user: config.user,
+      host: String(config.host || '127.0.0.1').trim(),
+      port: parseInt(config.port || 3306, 10),
+      user: String(config.user || 'sedna_app').trim(),
       password: config.password,
-      database: config.database,
+      database: sanitizeDbIdentifier(config.database, 'sedna_pedidos'),
       connectTimeout: 4000
     });
-    const [rows] = await conn.query('SELECT VERSION() as version, DATABASE() as db');
+    const [rows] = await conn.execute('SELECT VERSION() as version, DATABASE() as db');
     await conn.end();
     return { ok: true, version: rows[0]?.version, database: rows[0]?.db };
   } catch (err) {
@@ -312,19 +345,19 @@ async function testConnection(customConfig) {
   }
 }
 
-// Log de backup interno
+// Log de backup interno (Prepared Statement)
 async function logBackupAction(action, entityType, entityId, status, message = '') {
   if (!pool || !isConnected) return;
   try {
-    await pool.query(
+    await pool.execute(
       'INSERT INTO backup_logs (action, entity_type, entity_id, status, message) VALUES (?, ?, ?, ?, ?)',
-      [action, entityType, String(entityId || ''), status, message]
+      [String(action || ''), String(entityType || ''), String(entityId || ''), String(status || 'SUCCESS'), String(message || '')]
     );
   } catch (e) {}
 }
 
 // ========================================================
-// MÉTODOS DE BACKUP INDIVIDUAL (ASSÍNCRONOS / FIRE-AND-FORGET)
+// MÉTODOS DE BACKUP INDIVIDUAL (PREPARED STATEMENTS / ASSÍNCRONOS)
 // ========================================================
 
 // 1. Backup de Usuário
@@ -351,13 +384,13 @@ async function backupUser(user) {
         data_json = VALUES(data_json),
         updated_at = NOW()
     `;
-    await pool.query(sql, [
-      user.id,
-      user.username,
-      user.password || '',
-      user.name || '',
-      user.role || 'commercial',
-      user.roleLabel || 'Comercial',
+    await pool.execute(sql, [
+      String(user.id),
+      String(user.username || ''),
+      String(user.password || ''),
+      String(user.name || ''),
+      String(user.role || 'commercial'),
+      String(user.roleLabel || 'Comercial'),
       user.canViewAll ? 1 : 0,
       user.canEditAll ? 1 : 0,
       user.canManageUsers ? 1 : 0,
@@ -380,7 +413,7 @@ async function backupAllUsers(users) {
 async function deleteUser(id) {
   if (!pool || !isConnected || !id) return;
   try {
-    await pool.query('DELETE FROM users WHERE id = ?', [id]);
+    await pool.execute('DELETE FROM users WHERE id = ?', [String(id)]);
     await logBackupAction('DELETE', 'USER', id, 'SUCCESS');
   } catch (err) {
     console.warn('[MySQL Backup] Falha ao remover usuário do banco:', err.message);
@@ -398,7 +431,7 @@ async function backupProposal(proposal, fileName = null) {
     const modelName = proposal.general?.modelName || '';
     const clientName = proposal.general?.clientName || '';
     const propNum = proposal.general?.proposalNumber || '';
-    const rev = parseInt(proposal.general?.revision || 1);
+    const rev = parseInt(proposal.general?.revision || 1, 10);
     const fullCode = propNum ? `${propNum}-REV${rev}` : '';
     const authorUsername = proposal.author?.username || '';
     const authorName = proposal.author?.name || '';
@@ -424,18 +457,18 @@ async function backupProposal(proposal, fileName = null) {
         data_json = VALUES(data_json),
         updated_at = NOW()
     `;
-    await pool.query(sql, [
-      id,
-      fileName || `${id}.json`,
-      proposal.name || defaultName,
-      modelName,
-      clientName,
-      propNum,
+    await pool.execute(sql, [
+      String(id),
+      String(fileName || `${id}.json`),
+      String(proposal.name || defaultName),
+      String(modelName),
+      String(clientName),
+      String(propNum),
       rev,
-      fullCode,
-      authorUsername,
-      authorName,
-      price,
+      String(fullCode),
+      String(authorUsername),
+      String(authorName),
+      String(price),
       dataJson
     ]);
   } catch (err) {
@@ -446,7 +479,7 @@ async function backupProposal(proposal, fileName = null) {
 async function deleteProposal(id) {
   if (!pool || !isConnected || !id) return;
   try {
-    await pool.query('DELETE FROM proposals WHERE id = ?', [id]);
+    await pool.execute('DELETE FROM proposals WHERE id = ?', [String(id)]);
     await logBackupAction('DELETE', 'PROPOSAL', id, 'SUCCESS');
   } catch (err) {
     console.warn('[MySQL Backup] Falha ao excluir proposta do banco:', err.message);
@@ -468,11 +501,11 @@ async function backupActiveProposal(key, username, modelName, proposal, fileName
         data_json = VALUES(data_json),
         updated_at = NOW()
     `;
-    await pool.query(sql, [
-      key,
-      username || 'geral',
+    await pool.execute(sql, [
+      String(key),
+      String(username || 'geral'),
       modelName || proposal.general?.modelName || null,
-      fileName || `${key}.json`,
+      String(fileName || `${key}.json`),
       dataJson
     ]);
   } catch (err) {
@@ -483,7 +516,7 @@ async function backupActiveProposal(key, username, modelName, proposal, fileName
 async function deleteActiveProposal(key) {
   if (!pool || !isConnected || !key) return;
   try {
-    await pool.query('DELETE FROM active_proposals WHERE id = ?', [key]);
+    await pool.execute('DELETE FROM active_proposals WHERE id = ?', [String(key)]);
   } catch (err) {}
 }
 
@@ -500,9 +533,9 @@ async function backupModelTemplate(modelName, template, fileName = null) {
         data_json = VALUES(data_json),
         updated_at = NOW()
     `;
-    await pool.query(sql, [
-      modelName.toUpperCase(),
-      fileName || `${modelName.toLowerCase().replace(/[^a-z0-9_-]/g, '_')}.json`,
+    await pool.execute(sql, [
+      String(modelName).toUpperCase(),
+      String(fileName || `${modelName.toLowerCase().replace(/[^a-z0-9_-]/g, '_')}.json`),
       dataJson
     ]);
   } catch (err) {
@@ -527,7 +560,7 @@ async function backupModelsCatalog(models) {
           data_json = VALUES(data_json),
           updated_at = NOW()
       `;
-      await pool.query(sql, [name.toUpperCase(), img, dataJson]);
+      await pool.execute(sql, [String(name).toUpperCase(), String(img), dataJson]);
     }
   } catch (err) {
     console.warn('[MySQL Backup] Falha ao fazer backup de catálogo de modelos:', err.message);
@@ -537,8 +570,8 @@ async function backupModelsCatalog(models) {
 async function deleteModel(name) {
   if (!pool || !isConnected || !name) return;
   try {
-    await pool.query('DELETE FROM models_catalog WHERE name = ?', [name.toUpperCase()]);
-    await pool.query('DELETE FROM model_templates WHERE model_name = ?', [name.toUpperCase()]);
+    await pool.execute('DELETE FROM models_catalog WHERE name = ?', [String(name).toUpperCase()]);
+    await pool.execute('DELETE FROM model_templates WHERE model_name = ?', [String(name).toUpperCase()]);
   } catch (err) {}
 }
 
@@ -549,12 +582,12 @@ async function backupSettings(settings) {
     const val = JSON.stringify(settings);
     const sql = `
       INSERT INTO system_settings (setting_key, setting_value, updated_at)
-      VALUES ('general_settings', ?, NOW())
+      VALUES (?, ?, NOW())
       ON DUPLICATE KEY UPDATE
         setting_value = VALUES(setting_value),
         updated_at = NOW()
     `;
-    await pool.query(sql, [val]);
+    await pool.execute(sql, ['general_settings', val]);
   } catch (err) {
     console.warn('[MySQL Backup] Falha ao fazer backup de configurações:', err.message);
   }
@@ -575,8 +608,8 @@ async function backupSession(token, sessionData) {
         user_data = VALUES(user_data),
         expires_at = VALUES(expires_at)
     `;
-    await pool.query(sql, [
-      token,
+    await pool.execute(sql, [
+      String(token),
       sessionData.user?.id || null,
       sessionData.user?.username || null,
       userData,
@@ -595,7 +628,7 @@ async function backupAllSessions(sessionsObj) {
 async function deleteSession(token) {
   if (!pool || !isConnected || !token) return;
   try {
-    await pool.query('DELETE FROM sessions WHERE token = ?', [token]);
+    await pool.execute('DELETE FROM sessions WHERE token = ?', [String(token)]);
   } catch (err) {}
 }
 
@@ -824,7 +857,7 @@ async function restoreAllFilesFromDb() {
 
   // 1. Restaurar Usuários
   try {
-    const [rows] = await pool.query('SELECT * FROM users ORDER BY name ASC');
+    const [rows] = await pool.execute('SELECT * FROM users ORDER BY name ASC');
     if (rows && rows.length > 0) {
       const usersList = rows.map(r => {
         try {
@@ -855,13 +888,13 @@ async function restoreAllFilesFromDb() {
 
   // 2. Restaurar Propostas
   try {
-    const [rows] = await pool.query('SELECT * FROM proposals');
+    const [rows] = await pool.execute('SELECT * FROM proposals');
     if (rows && rows.length > 0) {
       for (const r of rows) {
         try {
           const prop = JSON.parse(r.data_json);
-          const fileName = r.file_name || `${r.id}.json`;
-          fs.writeFileSync(path.join(DATA_DIR, 'proposals', fileName), JSON.stringify(prop, null, 2), 'utf-8');
+          const safeFile = path.basename(String(r.file_name || `${r.id}.json`)).replace(/[^a-zA-Z0-9_.-]/g, '_');
+          fs.writeFileSync(path.join(DATA_DIR, 'proposals', safeFile), JSON.stringify(prop, null, 2), 'utf-8');
           results.proposals++;
         } catch (e) {}
       }
@@ -872,13 +905,13 @@ async function restoreAllFilesFromDb() {
 
   // 3. Restaurar Rascunhos Ativos
   try {
-    const [rows] = await pool.query('SELECT * FROM active_proposals');
+    const [rows] = await pool.execute('SELECT * FROM active_proposals');
     if (rows && rows.length > 0) {
       for (const r of rows) {
         try {
           const prop = JSON.parse(r.data_json);
-          const fileName = r.file_name || `${r.id}.json`;
-          fs.writeFileSync(path.join(DATA_DIR, 'active-proposals', fileName), JSON.stringify(prop, null, 2), 'utf-8');
+          const safeFile = path.basename(String(r.file_name || `${r.id}.json`)).replace(/[^a-zA-Z0-9_.-]/g, '_');
+          fs.writeFileSync(path.join(DATA_DIR, 'active-proposals', safeFile), JSON.stringify(prop, null, 2), 'utf-8');
           results.activeProposals++;
         } catch (e) {}
       }
@@ -889,13 +922,13 @@ async function restoreAllFilesFromDb() {
 
   // 4. Restaurar Templates de Modelos
   try {
-    const [rows] = await pool.query('SELECT * FROM model_templates');
+    const [rows] = await pool.execute('SELECT * FROM model_templates');
     if (rows && rows.length > 0) {
       for (const r of rows) {
         try {
           const tmpl = JSON.parse(r.data_json);
-          const fileName = r.file_name || `${r.model_name.toLowerCase().replace(/[^a-z0-9_-]/g, '_')}.json`;
-          fs.writeFileSync(path.join(DATA_DIR, 'model-templates', fileName), JSON.stringify(tmpl, null, 2), 'utf-8');
+          const safeFile = path.basename(String(r.file_name || `${r.model_name.toLowerCase().replace(/[^a-z0-9_-]/g, '_')}.json`)).replace(/[^a-zA-Z0-9_.-]/g, '_');
+          fs.writeFileSync(path.join(DATA_DIR, 'model-templates', safeFile), JSON.stringify(tmpl, null, 2), 'utf-8');
           results.modelTemplates++;
         } catch (e) {}
       }
@@ -906,7 +939,7 @@ async function restoreAllFilesFromDb() {
 
   // 5. Restaurar Catálogo de Modelos (models.json)
   try {
-    const [rows] = await pool.query('SELECT * FROM models_catalog ORDER BY name ASC');
+    const [rows] = await pool.execute('SELECT * FROM models_catalog ORDER BY name ASC');
     if (rows && rows.length > 0) {
       const modelsList = rows.map(r => {
         try {
@@ -922,7 +955,7 @@ async function restoreAllFilesFromDb() {
 
   // 6. Restaurar Configurações
   try {
-    const [rows] = await pool.query("SELECT * FROM system_settings WHERE setting_key = 'general_settings'");
+    const [rows] = await pool.execute('SELECT * FROM system_settings WHERE setting_key = ?', ['general_settings']);
     if (rows && rows.length > 0) {
       try {
         const settings = JSON.parse(rows[0].setting_value);
@@ -960,11 +993,11 @@ async function getStatus() {
 
   if (isConnected && pool) {
     try {
-      const [u] = await pool.query('SELECT COUNT(*) as cnt FROM users');
-      const [p] = await pool.query('SELECT COUNT(*) as cnt FROM proposals');
-      const [a] = await pool.query('SELECT COUNT(*) as cnt FROM active_proposals');
-      const [t] = await pool.query('SELECT COUNT(*) as cnt FROM model_templates');
-      const [m] = await pool.query('SELECT COUNT(*) as cnt FROM models_catalog');
+      const [u] = await pool.execute('SELECT COUNT(*) as cnt FROM users');
+      const [p] = await pool.execute('SELECT COUNT(*) as cnt FROM proposals');
+      const [a] = await pool.execute('SELECT COUNT(*) as cnt FROM active_proposals');
+      const [t] = await pool.execute('SELECT COUNT(*) as cnt FROM model_templates');
+      const [m] = await pool.execute('SELECT COUNT(*) as cnt FROM models_catalog');
       status.counts.users = u[0]?.cnt || 0;
       status.counts.proposals = p[0]?.cnt || 0;
       status.counts.activeProposals = a[0]?.cnt || 0;

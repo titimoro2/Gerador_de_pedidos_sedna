@@ -26,7 +26,16 @@ let commercialTablesReady = false;
 let lastConnectionError = null;
 let isConnected = false;
 
-// Lê as credenciais do MySQL principal do servidor (db-config.json / .env)
+// Sanitiza estritamente identificadores SQL (bancos, tabelas e colunas) permitindo apenas [a-zA-Z0-9_]
+function sanitizeSqlIdentifier(rawIdent, fallback = '') {
+  const clean = String(rawIdent || '').trim();
+  if (/^[a-zA-Z0-9_]{1,64}$/.test(clean)) {
+    return clean;
+  }
+  return fallback;
+}
+
+// Lê as credenciais do MySQL principal do servidor (db-config.json / .env) sem usar root por padrão
 function loadMainMysqlCredentials() {
   let fileCfg = {};
   if (fs.existsSync(MAIN_DB_CONFIG_FILE)) {
@@ -36,47 +45,63 @@ function loadMainMysqlCredentials() {
   }
   return {
     mainEnabled: fileCfg.enabled !== undefined ? !!fileCfg.enabled : (process.env.DB_ENABLED === 'true' || process.env.DB_ENABLED === '1'),
-    host: fileCfg.host || process.env.DB_HOST || 'localhost',
+    host: String(fileCfg.host || process.env.DB_HOST || '127.0.0.1').trim(),
     port: parseInt(fileCfg.port || process.env.DB_PORT || 3306, 10),
-    user: fileCfg.user || process.env.DB_USER || 'root',
-    password: fileCfg.password !== undefined ? fileCfg.password : (process.env.DB_PASSWORD || ''),
-    mainDatabase: fileCfg.database || process.env.DB_NAME || 'sedna_pedidos'
+    user: String(fileCfg.user || process.env.DB_USER || 'sedna_app').trim(),
+    password: (fileCfg.password !== undefined && fileCfg.password !== '' && fileCfg.password !== '********')
+      ? fileCfg.password
+      : (process.env.DB_PASSWORD || ''),
+    mainDatabase: sanitizeSqlIdentifier(fileCfg.database || process.env.DB_NAME || 'sedna_pedidos', 'sedna_pedidos')
   };
 }
 
-// Configuração padrão para conexão com iD Control (Mesmo MySQL do Servidor em outro Database, ou SQL Server)
-const DEFAULT_CONFIG = {
-  enabled: false,
-  useSameMysqlServer: true, // Usa automaticamente Host/Porta/Usuário/Senha do MySQL principal do servidor
-  dbType: 'mysql', // 'mysql' (Mesmo servidor MySQL em outro banco) | 'mssql' (SQL Server)
-  host: 'localhost',
-  port: 3306,
-  instanceName: '',
-  user: 'root',
-  password: '',
-  database: 'idsecure',
-  workdayMinutes: 528, // 08h48m (padrão comercial/industrial) ou 480 (08h00)
-  defaultLunchMinutes: 60, // 1h de intervalo padrão para o relatório de 1ª à última batida
-  autoDeductLunchAfterMinutes: 360, // Desconta almoço em jornadas acima de 6h no modo direto
-  mapping: {
-    mode: 'auto', // 'auto' | 'table' | 'custom_query'
-    logsTable: 'access_logs',
-    colLogId: 'id',
-    colLogTime: 'time',
-    colLogUserId: 'idUser',
-    colLogUserName: '',
-    colLogDirection: 'event',
-    colLogDevice: 'idDevice',
-    usersTable: 'users',
-    colUserId: 'id',
-    colUserName: 'name',
-    colUserRegistration: 'registration',
-    colUserDepartment: 'department',
-    customQuery: ''
-  }
-};
+// Configuração padrão com 2 Logins Independentes lidos exclusivamente de variáveis de ambiente (.env):
+// - Login 1 (Raiz do objeto): Banco da Catraca iD Control (SOMENTE LEITURA / SELECT)
+// - Login 2 (commercialDb): Banco do Sistema Comercial sedna_pedidos (LEITURA E GRAVAÇÃO DAS TABELAS DO RH)
+function getDefaultConfig() {
+  return {
+    enabled: process.env.RH_DB_ENABLED !== undefined ? (process.env.RH_DB_ENABLED === 'true' || process.env.RH_DB_ENABLED === '1') : true,
+    dbType: process.env.RH_DB_TYPE || 'mysql', // 'mysql' | 'mssql'
+    host: String(process.env.RH_DB_HOST || '127.0.0.1').trim(),
+    port: parseInt(process.env.RH_DB_PORT || 3306, 10),
+    instanceName: '',
+    user: String(process.env.RH_DB_USER || 'rh_leitura').trim(),
+    password: process.env.RH_DB_PASSWORD || '',
+    database: sanitizeSqlIdentifier(process.env.RH_DB_NAME || 'acesso', 'acesso'),
+    workdayMinutes: 528, // 08h48m (padrão comercial/industrial) ou 480 (08h00)
+    defaultLunchMinutes: 60, // 1h de intervalo padrão para o relatório de 1ª à última batida
+    autoDeductLunchAfterMinutes: 360, // Desconta almoço em jornadas acima de 6h no modo direto
+    commercialDb: {
+      enabled: true,
+      host: String(process.env.DB_HOST || '127.0.0.1').trim(),
+      port: parseInt(process.env.DB_PORT || 3306, 10),
+      user: String(process.env.DB_USER || 'sedna_app').trim(),
+      password: process.env.DB_PASSWORD || '',
+      database: sanitizeSqlIdentifier(process.env.DB_NAME || 'sedna_pedidos', 'sedna_pedidos')
+    },
+    mapping: {
+      mode: 'auto', // 'auto' | 'table' | 'custom_query'
+      logsTable: 'logs',
+      colLogId: 'id',
+      colLogTime: 'time',
+      colLogUserId: 'idUser',
+      colLogUserName: 'userName',
+      colLogDirection: 'info',
+      colLogDevice: 'deviceName',
+      usersTable: 'users',
+      colUserId: 'id',
+      colUserName: 'name',
+      colUserRegistration: 'registration',
+      colUserDepartment: 'cargo',
+      customQuery: ''
+    }
+  };
+}
+
+const DEFAULT_CONFIG = getDefaultConfig();
 
 function loadRhConfig() {
+  const defaults = getDefaultConfig();
   const mainMysql = loadMainMysqlCredentials();
   let saved = {};
   if (fs.existsSync(RH_CONFIG_FILE)) {
@@ -87,47 +112,90 @@ function loadRhConfig() {
     }
   }
 
+  // Login 2 (Banco Comercial onde salvamos os lançamentos/viagens do RH):
+  const savedComm = saved.commercialDb || {};
+  const commercialDb = {
+    enabled: savedComm.enabled !== undefined ? !!savedComm.enabled : true,
+    host: String(savedComm.host || mainMysql.host || defaults.commercialDb.host || '127.0.0.1').trim(),
+    port: parseInt(savedComm.port || mainMysql.port || defaults.commercialDb.port || 3306, 10),
+    user: String(savedComm.user || mainMysql.user || defaults.commercialDb.user || 'sedna_app').trim(),
+    password: (savedComm.password !== undefined && savedComm.password !== '' && savedComm.password !== '********')
+      ? savedComm.password
+      : (mainMysql.password || defaults.commercialDb.password || ''),
+    database: sanitizeSqlIdentifier(savedComm.database || mainMysql.mainDatabase || defaults.commercialDb.database || 'sedna_pedidos', 'sedna_pedidos')
+  };
+
+  // Login 1 (Catraca iD Control - Somente Leitura):
+  const resolvedPassword = (saved.password !== undefined && saved.password !== '' && saved.password !== '********')
+    ? saved.password
+    : defaults.password;
+
   const merged = {
-    ...DEFAULT_CONFIG,
-    host: mainMysql.host,
-    port: mainMysql.port,
-    user: mainMysql.user,
-    password: mainMysql.password,
+    ...defaults,
     ...saved,
+    host: String(saved.host || defaults.host || '127.0.0.1').trim(),
+    port: parseInt(saved.port || defaults.port || 3306, 10),
+    user: String(saved.user !== undefined && saved.user !== '' ? saved.user : defaults.user).trim(),
+    password: resolvedPassword,
+    database: sanitizeSqlIdentifier(saved.database || defaults.database || 'acesso', 'acesso'),
+    commercialDb,
     mapping: {
-      ...DEFAULT_CONFIG.mapping,
+      ...defaults.mapping,
       ...(saved.mapping || {})
     }
   };
 
-  // Se estiver configurado como MySQL usando o mesmo servidor principal (ou se a senha do RH estiver em branco e a do servidor existir),
-  // herda automaticamente as credenciais do MySQL do servidor!
-  if (merged.dbType === 'mysql' && (merged.useSameMysqlServer !== false || (!saved.password && mainMysql.password))) {
-    merged.host = saved.host || mainMysql.host || 'localhost';
-    merged.port = parseInt(saved.port || mainMysql.port || 3306, 10);
-    merged.user = saved.user || mainMysql.user || 'root';
-    if (!saved.password && mainMysql.password) {
-      merged.password = mainMysql.password;
-    }
-  }
-
-  merged.mainDatabaseName = mainMysql.mainDatabase;
-  merged.mainMysqlEnabled = mainMysql.mainEnabled;
+  merged.mainDatabaseName = commercialDb.database;
+  merged.mainMysqlEnabled = commercialDb.enabled;
   return merged;
 }
 
-function saveRhConfig(newConfig) {
+// Retorna cópia da configuração com senhas mascaradas para exibição segura no frontend
+function maskRhConfigForClient(cfg = null) {
+  const source = cfg || loadRhConfig();
+  return {
+    ...source,
+    password: source.password ? '********' : '',
+    hasSavedPassword: !!source.password,
+    commercialDb: {
+      ...(source.commercialDb || {}),
+      password: source.commercialDb?.password ? '********' : '',
+      hasSavedPassword: !!(source.commercialDb?.password)
+    }
+  };
+}
+
+function saveRhConfig(newConfig = {}) {
   const current = loadRhConfig();
+  const nextComm = {
+    ...(current.commercialDb || {}),
+    ...(newConfig.commercialDb || {})
+  };
+  if (newConfig.commercialDb?.password === '********' || (newConfig.commercialDb?.password === '' && current.commercialDb?.password)) {
+    nextComm.password = current.commercialDb.password;
+  }
+  nextComm.database = sanitizeSqlIdentifier(nextComm.database, 'sedna_pedidos');
+
   const merged = {
     ...current,
     ...newConfig,
+    database: sanitizeSqlIdentifier(newConfig.database || current.database, 'acesso'),
+    commercialDb: nextComm,
     mapping: {
       ...current.mapping,
       ...(newConfig.mapping || {})
     }
   };
+
+  if (newConfig.password === '********' || (newConfig.password === '' && current.password)) {
+    merged.password = current.password;
+  }
+
   delete merged.mainDatabaseName;
   delete merged.mainMysqlEnabled;
+  delete merged.hasSavedPassword;
+  if (merged.commercialDb) delete merged.commercialDb.hasSavedPassword;
+
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(RH_CONFIG_FILE, JSON.stringify(merged, null, 2), 'utf-8');
   closePools();
@@ -152,37 +220,93 @@ async function closePools() {
 }
 
 // ============================================================================
-// CONEXÃO 2: BANCO DE DADOS DO COMERCIAL (sedna_pedidos) - NOVAS TABELAS DO RH
+// CONEXÃO 2 (LOGIN 2): BANCO COMERCIAL (sedna_pedidos) - GRAVAÇÃO TABELAS RH
 // ============================================================================
-async function getCommercialRhPool() {
-  const mainMysql = loadMainMysqlCredentials();
-  const rhCfg = loadRhConfig();
+async function ensureCommercialRhTables(pool) {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS \`rh_ponto_lancamentos\` (
+        \`id\` VARCHAR(64) NOT NULL,
+        \`action_type\` VARCHAR(32) NOT NULL DEFAULT 'ADD',
+        \`original_log_id\` VARCHAR(128) DEFAULT NULL,
+        \`employee_id\` VARCHAR(64) NOT NULL,
+        \`employee_name\` VARCHAR(150) NOT NULL,
+        \`registration\` VARCHAR(64) DEFAULT NULL,
+        \`department\` VARCHAR(100) DEFAULT NULL,
+        \`log_date\` VARCHAR(10) NOT NULL,
+        \`log_time\` VARCHAR(8) NOT NULL,
+        \`direction\` VARCHAR(16) NOT NULL DEFAULT 'ENTRADA',
+        \`reason_type\` VARCHAR(64) DEFAULT 'Ajuste Manual RH',
+        \`notes\` TEXT DEFAULT NULL,
+        \`updated_by\` VARCHAR(100) DEFAULT NULL,
+        \`data_json\` LONGTEXT DEFAULT NULL,
+        \`updated_at\` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        \`created_at\` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_rh_lanc_emp_date\` (\`employee_name\`, \`log_date\`),
+        KEY \`idx_rh_lanc_orig\` (\`original_log_id\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
 
-  // Permite usar o MySQL do comercial se DB_ENABLED estiver ativo OU se o banco do RH estiver ativo no MySQL
-  const shouldConnectMysql = mainMysql.mainEnabled || (rhCfg.enabled && rhCfg.dbType === 'mysql');
-  if (!shouldConnectMysql) return null;
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS \`rh_jornada_diaria_ajustes\` (
+        \`id\` VARCHAR(160) NOT NULL,
+        \`employee_id\` VARCHAR(64) NOT NULL,
+        \`employee_name\` VARCHAR(150) NOT NULL,
+        \`registration\` VARCHAR(64) DEFAULT NULL,
+        \`department\` VARCHAR(100) DEFAULT NULL,
+        \`work_date\` VARCHAR(10) NOT NULL,
+        \`adjustment_mode\` VARCHAR(32) NOT NULL DEFAULT 'PUNCHES',
+        \`manual_worked_minutes\` INT DEFAULT 0,
+        \`bonus_minutes\` INT DEFAULT 0,
+        \`custom_expected_minutes\` INT DEFAULT NULL,
+        \`reason_type\` VARCHAR(64) DEFAULT 'Serviço Externo / Viagem',
+        \`notes\` TEXT DEFAULT NULL,
+        \`updated_by\` VARCHAR(100) DEFAULT NULL,
+        \`data_json\` LONGTEXT DEFAULT NULL,
+        \`updated_at\` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        \`created_at\` DATETIME DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (\`id\`),
+        KEY \`idx_rh_adj_date\` (\`work_date\`),
+        KEY \`idx_rh_adj_emp\` (\`employee_name\`)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+  } catch (_) {
+    // Usuário de menor privilégio (sedna_app) sem permissão CREATE TABLE: tabelas já criadas via setup-security.sql
+  }
+}
+
+async function getCommercialRhPool() {
+  const rhCfg = loadRhConfig();
+  const comm = rhCfg.commercialDb || {};
+
+  if (comm.enabled === false) return null;
 
   if (commercialPool && commercialTablesReady) {
     return commercialPool;
   }
 
-  const host = mainMysql.host || rhCfg.host || 'localhost';
-  const port = parseInt(mainMysql.port || rhCfg.port || 3306, 10);
-  const user = mainMysql.user || rhCfg.user || 'root';
-  const password = mainMysql.password || rhCfg.password || '';
-  const database = mainMysql.mainDatabase || 'sedna_pedidos';
+  const host = String(comm.host || '127.0.0.1').trim();
+  const port = parseInt(comm.port || 3306, 10);
+  const user = String(comm.user || 'sedna_app').trim();
+  const password = comm.password || '';
+  const database = sanitizeSqlIdentifier(comm.database || 'sedna_pedidos', 'sedna_pedidos');
 
   try {
     if (!commercialPool) {
-      const rootConn = await mysql.createConnection({
-        host,
-        port,
-        user,
-        password,
-        connectTimeout: 4000
-      });
-      await rootConn.query(`CREATE DATABASE IF NOT EXISTS \`${database}\` DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_unicode_ci`);
-      await rootConn.end();
+      try {
+        const bootstrapConn = await mysql.createConnection({
+          host,
+          port,
+          user,
+          password,
+          connectTimeout: 4000
+        });
+        await bootstrapConn.query(`CREATE DATABASE IF NOT EXISTS \`${database}\` DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_unicode_ci`);
+        await bootstrapConn.end();
+      } catch (_) {
+        // Usuário de menor privilégio conecta diretamente no banco já existente
+      }
 
       commercialPool = mysql.createPool({
         host,
@@ -193,102 +317,174 @@ async function getCommercialRhPool() {
         waitForConnections: true,
         connectionLimit: 5,
         charset: 'utf8mb4',
-        connectTimeout: 4000
+        connectTimeout: 4000,
+        namedPlaceholders: false
       });
+      await commercialPool.execute('SELECT 1');
     }
 
     if (!commercialTablesReady) {
-      await commercialPool.query(`
-        CREATE TABLE IF NOT EXISTS \`rh_ponto_lancamentos\` (
-          \`id\` VARCHAR(64) NOT NULL,
-          \`action_type\` VARCHAR(32) NOT NULL DEFAULT 'ADD',
-          \`original_log_id\` VARCHAR(128) DEFAULT NULL,
-          \`employee_id\` VARCHAR(64) NOT NULL,
-          \`employee_name\` VARCHAR(150) NOT NULL,
-          \`registration\` VARCHAR(64) DEFAULT NULL,
-          \`department\` VARCHAR(100) DEFAULT NULL,
-          \`log_date\` VARCHAR(10) NOT NULL,
-          \`log_time\` VARCHAR(8) NOT NULL,
-          \`direction\` VARCHAR(16) NOT NULL DEFAULT 'ENTRADA',
-          \`reason_type\` VARCHAR(64) DEFAULT 'Ajuste Manual RH',
-          \`notes\` TEXT DEFAULT NULL,
-          \`updated_by\` VARCHAR(100) DEFAULT NULL,
-          \`data_json\` LONGTEXT DEFAULT NULL,
-          \`updated_at\` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-          \`created_at\` DATETIME DEFAULT CURRENT_TIMESTAMP,
-          PRIMARY KEY (\`id\`),
-          KEY \`idx_rh_lanc_emp_date\` (\`employee_name\`, \`log_date\`),
-          KEY \`idx_rh_lanc_orig\` (\`original_log_id\`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-      `);
-
-      await commercialPool.query(`
-        CREATE TABLE IF NOT EXISTS \`rh_jornada_diaria_ajustes\` (
-          \`id\` VARCHAR(160) NOT NULL,
-          \`employee_id\` VARCHAR(64) NOT NULL,
-          \`employee_name\` VARCHAR(150) NOT NULL,
-          \`registration\` VARCHAR(64) DEFAULT NULL,
-          \`department\` VARCHAR(100) DEFAULT NULL,
-          \`work_date\` VARCHAR(10) NOT NULL,
-          \`adjustment_mode\` VARCHAR(32) NOT NULL DEFAULT 'PUNCHES',
-          \`manual_worked_minutes\` INT DEFAULT 0,
-          \`bonus_minutes\` INT DEFAULT 0,
-          \`custom_expected_minutes\` INT DEFAULT NULL,
-          \`reason_type\` VARCHAR(64) DEFAULT 'Serviço Externo / Viagem',
-          \`notes\` TEXT DEFAULT NULL,
-          \`updated_by\` VARCHAR(100) DEFAULT NULL,
-          \`data_json\` LONGTEXT DEFAULT NULL,
-          \`updated_at\` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-          \`created_at\` DATETIME DEFAULT CURRENT_TIMESTAMP,
-          PRIMARY KEY (\`id\`),
-          KEY \`idx_rh_adj_date\` (\`work_date\`),
-          KEY \`idx_rh_adj_emp\` (\`employee_name\`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-      `);
-
+      await ensureCommercialRhTables(commercialPool);
       commercialTablesReady = true;
     }
 
     return commercialPool;
   } catch (err) {
-    console.warn('[RH Comercial DB] Aviso ao conectar no banco comercial p/ tabelas RH:', err.message);
+    if (commercialPool) {
+      try { await commercialPool.end(); } catch (_) {}
+      commercialPool = null;
+      commercialTablesReady = false;
+    }
     return null;
   }
 }
 
-// Conecta ao MySQL ou SQL Server conforme configurado
+// Testa especificamente o Login 2 (Banco Comercial de Gravação das Tabelas do RH)
+async function testCommercialDbConnection(customCommCfg = null) {
+  const baseCfg = loadRhConfig();
+  const comm = {
+    ...(baseCfg.commercialDb || {}),
+    ...(customCommCfg || {})
+  };
+  if (customCommCfg && (customCommCfg.password === '********' || (customCommCfg.password === '' && baseCfg.commercialDb?.password))) {
+    comm.password = baseCfg.commercialDb.password;
+  }
+
+  const host = String(comm.host || '127.0.0.1').trim();
+  const port = parseInt(comm.port || 3306, 10);
+  const user = String(comm.user || 'sedna_app').trim();
+  const password = comm.password !== undefined ? comm.password : (baseCfg.commercialDb?.password || '');
+  const database = sanitizeSqlIdentifier(comm.database || 'sedna_pedidos', 'sedna_pedidos');
+
+  let tempPool = null;
+  try {
+    try {
+      const bootstrapConn = await mysql.createConnection({ host, port, user, password, connectTimeout: 5000 });
+      await bootstrapConn.query(`CREATE DATABASE IF NOT EXISTS \`${database}\` DEFAULT CHARACTER SET utf8mb4 DEFAULT COLLATE utf8mb4_unicode_ci`);
+      await bootstrapConn.end();
+    } catch (_) {}
+
+    tempPool = mysql.createPool({
+      host,
+      port,
+      user,
+      password,
+      database,
+      waitForConnections: true,
+      connectionLimit: 2,
+      charset: 'utf8mb4',
+      connectTimeout: 5000,
+      namedPlaceholders: false
+    });
+
+    await ensureCommercialRhTables(tempPool);
+    const [lancCount] = await tempPool.execute('SELECT COUNT(*) AS total FROM `rh_ponto_lancamentos`');
+    const [adjCount] = await tempPool.execute('SELECT COUNT(*) AS total FROM `rh_jornada_diaria_ajustes`');
+    await tempPool.end();
+
+    return {
+      connected: true,
+      host,
+      port,
+      user,
+      database,
+      message: `Login 2 conectado com sucesso ao banco "${database}" usando o usuário "${user}"! Tabelas rh_ponto_lancamentos (${lancCount[0]?.total || 0} reg.) e rh_jornada_diaria_ajustes (${adjCount[0]?.total || 0} reg.) prontas para gravação.`
+    };
+  } catch (err) {
+    if (tempPool) {
+      try { await tempPool.end(); } catch (_) {}
+    }
+    return {
+      connected: false,
+      host,
+      port,
+      user,
+      database,
+      message: `Falha no Login 2 (${user}@${host}:${port}/${database}): ${err.message}`
+    };
+  }
+}
+
+// ============================================================================
+// CONEXÃO 1 (LOGIN 1): CATRACA iD CONTROL — ESTRITAMENTE SOMENTE LEITURA (SELECT)
+// ============================================================================
+function assertReadOnlyQuery(queryText) {
+  const cleaned = String(queryText || '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/--.*$/gm, '')
+    .trim();
+  // Remove ponto-e-vírgula final único, mas bloqueia múltiplos comandos concatenados por ';'
+  const withoutTrailingSemicolon = cleaned.replace(/;+\s*$/, '');
+  if (withoutTrailingSemicolon.includes(';')) {
+    throw new Error('Bloqueio de Segurança: Múltiplas instruções SQL (stacked queries) não são permitidas.');
+  }
+  if (!/^(SELECT|SHOW|DESCRIBE|EXPLAIN)\b/i.test(withoutTrailingSemicolon)) {
+    throw new Error('Bloqueio de Segurança: A Conexão 1 (iD Control) é estritamente Somente Leitura (SELECT).');
+  }
+  if (/\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|REPLACE|CREATE|GRANT|REVOKE|INTO\s+OUTFILE|INTO\s+DUMPFILE|LOAD_FILE|SLEEP|BENCHMARK)\b/i.test(withoutTrailingSemicolon)) {
+    throw new Error('Bloqueio de Segurança: Comandos de escrita, alteração ou funções perigosas são bloqueados no banco do iD Control.');
+  }
+}
+
+// Conecta ao MySQL ou SQL Server do iD Control usando exclusivamente o Login 1 (Somente Leitura)
 async function getConnection(customCfg = null, withoutDatabase = false) {
   const baseCfg = loadRhConfig();
   const cfg = customCfg ? { ...baseCfg, ...customCfg } : baseCfg;
-
-  // Se o usuário não digitou a senha no modal mas o MySQL do servidor já tem a senha salva, aproveita ela
-  if (cfg.dbType === 'mysql' && !cfg.password && baseCfg.password) {
+  if (customCfg && (customCfg.password === '********' || (customCfg.password === '' && baseCfg.password))) {
     cfg.password = baseCfg.password;
   }
 
   if (cfg.dbType === 'mysql') {
     if (!customCfg && !withoutDatabase && mysqlPool) return { type: 'mysql', pool: mysqlPool, cfg };
-    const poolConfig = {
-      host: cfg.host || 'localhost',
-      port: parseInt(cfg.port || 3306, 10),
-      user: cfg.user || 'root',
-      password: cfg.password || '',
-      waitForConnections: true,
-      connectionLimit: 5,
-      connectTimeout: 6000
-    };
-    if (!withoutDatabase && cfg.database) {
-      poolConfig.database = cfg.database;
+
+    const primaryHost = String(cfg.host || baseCfg.host || '127.0.0.1').trim();
+    const fallbackHosts = [primaryHost];
+    if (!customCfg) {
+      const envHost = String(process.env.RH_DB_HOST || '').trim();
+      if (envHost && !fallbackHosts.includes(envHost)) {
+        fallbackHosts.push(envHost);
+      }
+      if (!fallbackHosts.includes('127.0.0.1')) {
+        fallbackHosts.push('127.0.0.1');
+      }
     }
-    const pool = mysql.createPool(poolConfig);
-    const conn = await pool.getConnection();
-    conn.release();
-    if (!customCfg && !withoutDatabase) {
-      mysqlPool = pool;
-      isConnected = true;
-      lastConnectionError = null;
+
+    let lastErr = null;
+    for (const candidateHost of fallbackHosts) {
+      const poolConfig = {
+        host: candidateHost,
+        port: parseInt(cfg.port || 3306, 10),
+        user: String(cfg.user || 'rh_leitura').trim(),
+        password: cfg.password || '',
+        dateStrings: true,
+        waitForConnections: true,
+        connectionLimit: 5,
+        connectTimeout: 5000,
+        namedPlaceholders: false
+      };
+      if (!withoutDatabase && cfg.database) {
+        poolConfig.database = sanitizeSqlIdentifier(cfg.database, 'acesso');
+      }
+      const pool = mysql.createPool(poolConfig);
+      try {
+        const conn = await pool.getConnection();
+        try {
+          // Ativa modo Somente Leitura na sessão MySQL da Conexão 1
+          await conn.execute('SET SESSION TRANSACTION READ ONLY');
+        } catch (_) {}
+        conn.release();
+        if (!customCfg && !withoutDatabase) {
+          mysqlPool = pool;
+          isConnected = true;
+          lastConnectionError = null;
+        }
+        return { type: 'mysql', pool, cfg: { ...cfg, host: candidateHost } };
+      } catch (err) {
+        lastErr = err;
+        try { await pool.end(); } catch (_) {}
+      }
     }
-    return { type: 'mysql', pool, cfg };
+    throw lastErr || new Error('Não foi possível conectar ao MySQL do iD Control.');
   }
 
   // Microsoft SQL Server (mssql)
@@ -316,7 +512,8 @@ async function getConnection(customCfg = null, withoutDatabase = false) {
     options: {
       encrypt: false,
       trustServerCertificate: true,
-      enableArithAbort: true
+      enableArithAbort: true,
+      readOnlyIntent: true
     },
     connectionTimeout: 6000,
     requestTimeout: 15000
@@ -337,16 +534,42 @@ async function getConnection(customCfg = null, withoutDatabase = false) {
   return { type: 'mssql', pool, cfg };
 }
 
-// Executa uma query genérica no banco configurado
-async function executeQuery(queryText, customCfg = null, withoutDatabase = false) {
+// Executa apenas consultas de leitura (SELECT / SHOW) no banco da catraca (Login 1) utilizando Prepared Statements
+async function executeQuery(queryText, paramsOrCustomCfg = [], maybeCustomCfg = null, maybeWithoutDatabase = false) {
+  assertReadOnlyQuery(queryText);
+
+  let params = [];
+  let customCfg = maybeCustomCfg;
+  let withoutDatabase = maybeWithoutDatabase;
+
+  if (Array.isArray(paramsOrCustomCfg)) {
+    params = paramsOrCustomCfg;
+  } else {
+    customCfg = paramsOrCustomCfg;
+    withoutDatabase = !!maybeCustomCfg;
+  }
+
   const conn = await getConnection(customCfg, withoutDatabase);
   try {
     if (conn.type === 'mysql') {
-      const [rows] = await conn.pool.query(queryText);
+      let rows;
+      if (/^SELECT\b/i.test(String(queryText).trim())) {
+        // Estritamente Prepared Statement (protocolo binário COM_STMT_PREPARE / COM_STMT_EXECUTE)
+        const [execRows] = await conn.pool.execute(queryText, params);
+        rows = execRows;
+      } else {
+        // Apenas para comandos de metadados como SHOW DATABASES sem parâmetros de usuário
+        const [queryRows] = await conn.pool.query(queryText);
+        rows = queryRows;
+      }
       if (customCfg || withoutDatabase) await conn.pool.end();
       return rows;
     } else {
-      const result = await conn.pool.request().query(queryText);
+      const request = conn.pool.request();
+      params.forEach((val, idx) => {
+        request.input(`p${idx}`, val);
+      });
+      const result = await request.query(queryText);
       if (customCfg || withoutDatabase) await conn.pool.close();
       return result.recordset || [];
     }
@@ -361,72 +584,91 @@ async function executeQuery(queryText, customCfg = null, withoutDatabase = false
   }
 }
 
-// Testa conexão, lista todos os bancos disponíveis no MySQL e descobre tabelas do iD Control
+// Testa Login 1 (Leitura iD Control), lista os bancos visíveis para esse usuário de leitura e descobre as tabelas via Prepared Statements
 async function testAndInspectDatabase(testCfg = null) {
   const baseCfg = loadRhConfig();
   const cfg = testCfg ? { ...baseCfg, ...testCfg } : baseCfg;
-  if (cfg.dbType === 'mysql' && !cfg.password && baseCfg.password) {
+  if (testCfg && (testCfg.password === '********' || (testCfg.password === '' && baseCfg.password))) {
     cfg.password = baseCfg.password;
   }
 
   try {
     let tables = [];
     let availableDatabases = [];
-    let selectedDatabase = (cfg.database || '').trim();
+    let selectedDatabase = sanitizeSqlIdentifier(cfg.database || '', '');
 
     if (cfg.dbType === 'mysql') {
-      // 1. Conecta ao MySQL sem exigir que o nome do banco já esteja certo, para listar todos os bancos existentes
-      const dbRows = await executeQuery('SHOW DATABASES', cfg, true);
-      const systemSchemas = new Set(['information_schema', 'performance_schema', 'mysql', 'sys']);
-      availableDatabases = dbRows
-        .map(r => r.Database || r.database || Object.values(r)[0])
-        .filter(dbName => dbName && !systemSchemas.has(String(dbName).toLowerCase()));
+      try {
+        // Lista bancos visíveis usando Prepared Statement em INFORMATION_SCHEMA.SCHEMATA
+        const dbRows = await executeQuery(
+          'SELECT SCHEMA_NAME AS dbName FROM INFORMATION_SCHEMA.SCHEMATA ORDER BY SCHEMA_NAME',
+          [],
+          cfg,
+          true
+        );
+        const systemSchemas = new Set(['information_schema', 'performance_schema', 'mysql', 'sys']);
+        availableDatabases = dbRows
+          .map(r => r.dbName || r.SCHEMA_NAME || r.Database || r.database || Object.values(r)[0])
+          .filter(dbName => dbName && !systemSchemas.has(String(dbName).toLowerCase()));
+      } catch (_) {
+        if (selectedDatabase) availableDatabases = [selectedDatabase];
+      }
 
-      // 2. Verifica se o banco informado existe na lista; se não existir, escolhe automaticamente o banco do iD Control (outro banco diferente de sedna_pedidos)
       const exactMatch = availableDatabases.find(d => d.toLowerCase() === selectedDatabase.toLowerCase());
       if (exactMatch) {
-        selectedDatabase = exactMatch;
-      } else {
-        const mainDbLower = (baseCfg.mainDatabaseName || 'sedna_pedidos').toLowerCase();
+        selectedDatabase = sanitizeSqlIdentifier(exactMatch, selectedDatabase);
+      } else if (availableDatabases.length > 0) {
+        const mainDbLower = (baseCfg.commercialDb?.database || 'sedna_pedidos').toLowerCase();
         const otherDbs = availableDatabases.filter(d => d.toLowerCase() !== mainDbLower);
-        const idControlCandidate = otherDbs.find(d => /id|catraca|acesso|ponto|control|sec|rh/i.test(d)) || otherDbs[0] || availableDatabases[0] || selectedDatabase;
+        const idControlCandidate = otherDbs.find(d => /acesso|id|catraca|ponto|control|sec|rh/i.test(d)) || otherDbs[0] || availableDatabases[0] || selectedDatabase;
         if (idControlCandidate) {
-          selectedDatabase = idControlCandidate;
+          selectedDatabase = sanitizeSqlIdentifier(idControlCandidate, selectedDatabase);
           cfg.database = selectedDatabase;
         }
       }
 
       if (selectedDatabase) {
-        const safeDb = selectedDatabase.replace(/'/g, "''");
         const rows = await executeQuery(
-          `SELECT TABLE_NAME as tableName FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '${safeDb}' ORDER BY TABLE_NAME`,
+          'SELECT TABLE_NAME as tableName FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = ? ORDER BY TABLE_NAME',
+          [selectedDatabase],
           cfg,
           true
         );
-        tables = rows.map(r => r.tableName || r.TABLE_NAME);
+        tables = rows.map(r => r.tableName || r.TABLE_NAME).filter(Boolean);
       }
     } else {
       const rows = await executeQuery(
-        `SELECT TABLE_NAME as tableName FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE IN ('BASE TABLE', 'VIEW') ORDER BY TABLE_NAME`,
-        cfg
+        "SELECT TABLE_NAME as tableName FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE IN ('BASE TABLE', 'VIEW') ORDER BY TABLE_NAME",
+        [],
+        cfg,
+        false
       );
-      tables = rows.map(r => r.tableName || r.TABLE_NAME);
+      tables = rows.map(r => r.tableName || r.TABLE_NAME).filter(Boolean);
     }
 
-    // Buscar colunas das principais tabelas candidatas
+    // Buscar colunas das principais tabelas candidatas usando Prepared Statements (sem interpolação de strings)
     const tableColumns = {};
-    const safeSchemaFilter = cfg.dbType === 'mysql' && selectedDatabase
-      ? ` AND TABLE_SCHEMA = '${selectedDatabase.replace(/'/g, "''")}'`
-      : '';
-
     for (const tbl of tables.slice(0, 40)) {
+      const safeTbl = sanitizeSqlIdentifier(tbl, '');
+      if (!safeTbl) continue;
       try {
-        const colRows = await executeQuery(
-          `SELECT COLUMN_NAME as colName, DATA_TYPE as dataType FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '${tbl.replace(/'/g, "''")}'${safeSchemaFilter}`,
-          cfg,
-          cfg.dbType === 'mysql'
-        );
-        tableColumns[tbl] = colRows.map(c => ({
+        let colRows;
+        if (cfg.dbType === 'mysql' && selectedDatabase) {
+          colRows = await executeQuery(
+            'SELECT COLUMN_NAME as colName, DATA_TYPE as dataType FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = ? AND TABLE_SCHEMA = ?',
+            [safeTbl, selectedDatabase],
+            cfg,
+            true
+          );
+        } else {
+          colRows = await executeQuery(
+            'SELECT COLUMN_NAME as colName, DATA_TYPE as dataType FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = @p0',
+            [safeTbl],
+            cfg,
+            false
+          );
+        }
+        tableColumns[safeTbl] = colRows.map(c => ({
           name: c.colName || c.COLUMN_NAME,
           type: c.dataType || c.DATA_TYPE
         }));
@@ -459,12 +701,12 @@ async function testAndInspectDatabase(testCfg = null) {
   }
 }
 
-// Detecta automaticamente tabelas e colunas típicas do Control iD / iDSecure
+// Detecta automaticamente tabelas e colunas típicas do Control iD / iDSecure (banco `acesso`)
 function suggestControlIdMapping(tables, tableColumns) {
   const suggestion = { ...DEFAULT_CONFIG.mapping };
 
-  const logCandidates = ['AccessLogs', 'access_logs', 'Logs', 'logs', 'Events', 'events', 'tb_acessos', 'Acessos', 'Movimentacoes', 'Registros', 'Marcacoes', 'AFD'];
-  const userCandidates = ['Users', 'users', 'Funcionarios', 'funcionarios', 'Pessoas', 'pessoas', 'Employees', 'Colaboradores', 'tb_usuarios'];
+  const logCandidates = ['logs', 'Logs', 'AccessLogs', 'access_logs', 'Events', 'events', 'tb_acessos', 'Acessos', 'Movimentacoes', 'Registros', 'Marcacoes', 'AFD'];
+  const userCandidates = ['users', 'Users', 'Funcionarios', 'funcionarios', 'Pessoas', 'pessoas', 'Employees', 'Colaboradores', 'tb_usuarios'];
 
   const foundLogTable = tables.find(t => logCandidates.some(c => c.toLowerCase() === t.toLowerCase()))
     || tables.find(t => /log|acess|event|ponto|catraca|moviment/i.test(t));
@@ -481,8 +723,9 @@ function suggestControlIdMapping(tables, tableColumns) {
     suggestion.colLogTime = findCol(/^(time|datetime|date|datahora|data_hora|timestamp|dt_acesso|horario|eventtime)$/i) || findCol(/time|date|data|hora/i) || 'time';
     suggestion.colLogUserId = findCol(/^(iduser|user_id|userid|id_usuario|idpessoa|idfuncionario|matricula|pis)$/i) || findCol(/user|pess|func/i) || 'idUser';
     suggestion.colLogUserName = findCol(/^(username|user_name|nome|nome_funcionario|employeename|pessoa)$/i) || '';
-    suggestion.colLogDirection = findCol(/^(direction|sentido|tipo|event|evento|in_out|tipo_acesso|way)$/i) || '';
-    suggestion.colLogDevice = findCol(/^(iddevice|device_id|device|equipamento|catraca|portal|idarea|reader)$/i) || '';
+    // No Control iD (`acesso.logs`), a coluna `info` traz 'Entrada' / 'Saída', enquanto `event` traz o código numérico (7 = autorizado)
+    suggestion.colLogDirection = findCol(/^(info|direction|sentido|tipo|in_out|tipo_acesso|way|event|evento)$/i) || 'info';
+    suggestion.colLogDevice = findCol(/^(devicename|device_name|equipamento|catraca|portal|iddevice|device_id|device|idarea|reader)$/i) || 'deviceName';
   }
 
   if (foundUserTable) {
@@ -514,20 +757,25 @@ function normalizeDirection(rawVal, indexInDay = 0) {
   return (indexInDay % 2 === 0) ? 'ENTRADA' : 'SAIDA';
 }
 
-// Converte valor de data/hora do banco (Date, String ISO, ou Unix Timestamp do Control iD) para objeto Date local
+// Converte valor de data/hora do banco (String 'YYYY-MM-DD HH:MM:SS', Date, ou Unix Timestamp) para objeto Date local
 function parseLogTimestamp(rawTime) {
   if (!rawTime && rawTime !== 0) return null;
   if (rawTime instanceof Date) {
     return isNaN(rawTime.getTime()) ? null : rawTime;
   }
-  // No Control iD (iDSecure), o campo `time` muitas vezes é salvo como Unix Timestamp em segundos (BIGINT / INT)
-  if (typeof rawTime === 'number' || (/^\d+$/.test(String(rawTime).trim()))) {
-    const num = Number(rawTime);
-    // Se for em segundos (ex: 1790000000)
+  const str = String(rawTime).trim();
+  // Formato padrão MySQL DATETIME: 'YYYY-MM-DD HH:MM:SS'
+  const mysqlMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
+  if (mysqlMatch) {
+    const [, y, m, d, hh, mm, ss] = mysqlMatch.map(Number);
+    return new Date(y, m - 1, d, hh, mm, ss);
+  }
+  // No Control iD, caso algum modelo salve Unix Timestamp em segundos (BIGINT / INT)
+  if (typeof rawTime === 'number' || (/^\d+$/.test(str))) {
+    const num = Number(str);
     if (num > 100000000 && num < 10000000000) {
       return new Date(num * 1000);
     }
-    // Se for em milissegundos
     if (num >= 10000000000) {
       return new Date(num);
     }
@@ -536,83 +784,216 @@ function parseLogTimestamp(rawTime) {
   return isNaN(parsed.getTime()) ? null : parsed;
 }
 
-// Busca registros reais no banco do iD Control
+// Normaliza espaços múltiplos no nome do funcionário mantendo a grafia original
+function cleanEmployeeName(rawName) {
+  return String(rawName || '').replace(/\s+/g, ' ').trim();
+}
+
+// Busca todos os colaboradores ativos na tabela `users` (e seu departamento em `groups`) do iD Control
+async function fetchActiveUsersFromDatabase() {
+  const cfg = loadRhConfig();
+  if (!cfg.enabled || cfg.dbType !== 'mysql') return [];
+  const map = cfg.mapping || DEFAULT_CONFIG.mapping;
+  if (!map.usersTable || map.usersTable.toLowerCase() !== 'users') return [];
+
+  try {
+    const query = `
+      SELECT
+        U.\`id\` AS employee_id,
+        U.\`name\` AS employee_name,
+        U.\`registration\` AS registration,
+        U.\`cargo\` AS user_cargo,
+        (SELECT G.\`name\` FROM \`usergroups\` UG INNER JOIN \`groups\` G ON UG.\`idGroup\` = G.\`id\` WHERE UG.\`idUser\` = U.\`id\` ORDER BY G.\`id\` DESC LIMIT 1) AS group_name
+      FROM \`users\` U
+      WHERE (U.\`deleted\` = 0 OR U.\`deleted\` IS NULL)
+        AND (U.\`inativo\` = 0 OR U.\`inativo\` IS NULL)
+        AND U.\`name\` IS NOT NULL
+      ORDER BY U.\`name\` ASC
+    `;
+    const rows = await executeQuery(query);
+    return rows.map(r => {
+      const dept = String(r.group_name || r.user_cargo || '').trim() || 'Departamento Padrão';
+      return {
+        id: String(r.employee_id),
+        name: cleanEmployeeName(r.employee_name),
+        registration: String(r.registration || '').trim(),
+        department: dept
+      };
+    }).filter(u => u.name);
+  } catch (_) {
+    return [];
+  }
+}
+
+// Busca registros reais no banco do iD Control (`acesso.logs`)
 async function fetchLogsFromDatabase(filters = {}) {
   const cfg = loadRhConfig();
   const map = cfg.mapping || DEFAULT_CONFIG.mapping;
 
-  let query = '';
+  let rows = [];
   if (map.mode === 'custom_query' && map.customQuery && map.customQuery.trim()) {
-    query = map.customQuery.trim();
+    rows = await executeQuery(map.customQuery.trim());
   } else {
-    const q = (ident) => cfg.dbType === 'mysql' ? `\`${ident}\`` : `[${ident}]`;
-    const logsTbl = q(map.logsTable || 'AccessLogs');
-    const colTime = `L.${q(map.colLogTime || 'time')}`;
-    const colId = map.colLogId ? `L.${q(map.colLogId)}` : colTime;
-    const colDir = map.colLogDirection ? `L.${q(map.colLogDirection)}` : `NULL`;
-    const colDev = map.colLogDevice ? `L.${q(map.colLogDevice)}` : `'Catraca Principal'`;
+    const isStandardControlIdMySql =
+      cfg.dbType === 'mysql' &&
+      String(map.logsTable || 'logs').toLowerCase() === 'logs' &&
+      String(map.usersTable || 'users').toLowerCase() === 'users';
 
-    const hasUsersJoin = !!(map.usersTable && map.colLogUserId && map.colUserId && map.colUserName);
-    if (hasUsersJoin) {
-      const usersTbl = q(map.usersTable);
-      const colUName = `U.${q(map.colUserName)}`;
-      const colUReg = map.colUserRegistration ? `U.${q(map.colUserRegistration)}` : `''`;
-      const colUDept = map.colUserDepartment ? `U.${q(map.colUserDepartment)}` : `'Geral'`;
-      const limitClause = cfg.dbType === 'mysql' ? '' : 'TOP 15000';
-      const limitEnd = cfg.dbType === 'mysql' ? 'LIMIT 15000' : '';
+    if (isStandardControlIdMySql) {
+      // Consulta otimizada para a estrutura oficial do iD Control (`acesso`):
+      // - Filtra `L.event = 7` (Acesso Autorizado com giro realizado) e `L.idUser > 0`
+      //   para descartar Não Identificados (3), Acesso Negado (6) e Desistência de Giro (13)
+      // - Evita literais acentuados dentro de COALESCE para compatibilidade total com tabelas latin1_swedish_ci
+      try {
+        const controlIdSql = `
+          SELECT
+            L.\`id\` AS log_id,
+            L.\`time\` AS log_time,
+            L.\`idUser\` AS employee_id,
+            U.\`name\` AS user_table_name,
+            L.\`userName\` AS log_table_name,
+            U.\`registration\` AS registration,
+            U.\`cargo\` AS user_cargo,
+            (SELECT G.\`name\` FROM \`usergroups\` UG INNER JOIN \`groups\` G ON UG.\`idGroup\` = G.\`id\` WHERE UG.\`idUser\` = L.\`idUser\` ORDER BY G.\`id\` DESC LIMIT 1) AS group_name,
+            L.\`info\` AS direction,
+            L.\`reader\` AS reader_id,
+            L.\`deviceName\` AS device_name
+          FROM \`logs\` L
+          LEFT JOIN \`users\` U ON L.\`idUser\` = U.\`id\`
+          WHERE L.\`event\` = 7
+            AND L.\`idUser\` > 0
+          ORDER BY L.\`time\` DESC
+          LIMIT 50000
+        `;
+        rows = await executeQuery(controlIdSql);
+      } catch (_) {
+        rows = [];
+      }
+    }
 
-      query = `
-        SELECT ${limitClause}
-          ${colId} AS log_id,
-          ${colTime} AS log_time,
-          L.${q(map.colLogUserId)} AS employee_id,
-          ${colUName} AS employee_name,
-          ${colUReg} AS registration,
-          ${colUDept} AS department,
-          ${colDir} AS direction,
-          ${colDev} AS device_name
-        FROM ${logsTbl} L
-        LEFT JOIN ${usersTbl} U ON L.${q(map.colLogUserId)} = U.${q(map.colUserId)}
-        ORDER BY ${colTime} DESC
-        ${limitEnd}
-      `;
-    } else {
-      const colUName = map.colLogUserName ? `L.${q(map.colLogUserName)}` : (map.colLogUserId ? `L.${q(map.colLogUserId)}` : `'Funcionário'`);
-      const limitClause = cfg.dbType === 'mysql' ? '' : 'TOP 15000';
-      const limitEnd = cfg.dbType === 'mysql' ? 'LIMIT 15000' : '';
+    if (!rows.length) {
+      const q = (ident, fallback) => {
+        const safe = sanitizeSqlIdentifier(ident, fallback);
+        if (!safe) return 'NULL';
+        return cfg.dbType === 'mysql' ? `\`${safe}\`` : `[${safe}]`;
+      };
+      const logsTbl = q(map.logsTable, 'logs');
+      const colTime = `L.${q(map.colLogTime, 'time')}`;
+      const colId = sanitizeSqlIdentifier(map.colLogId, '') ? `L.${q(map.colLogId, 'id')}` : colTime;
+      const colDir = sanitizeSqlIdentifier(map.colLogDirection, '') ? `L.${q(map.colLogDirection, 'info')}` : `NULL`;
+      const colDev = sanitizeSqlIdentifier(map.colLogDevice, '') ? `L.${q(map.colLogDevice, 'deviceName')}` : `'Catraca Principal'`;
 
-      query = `
-        SELECT ${limitClause}
-          ${colId} AS log_id,
-          ${colTime} AS log_time,
-          ${colUName} AS employee_id,
-          ${colUName} AS employee_name,
-          '' AS registration,
-          'Geral' AS department,
-          ${colDir} AS direction,
-          ${colDev} AS device_name
-        FROM ${logsTbl} L
-        ORDER BY ${colTime} DESC
-        ${limitEnd}
-      `;
+      const hasUsersJoin = !!(
+        sanitizeSqlIdentifier(map.usersTable, '') &&
+        sanitizeSqlIdentifier(map.colLogUserId, '') &&
+        sanitizeSqlIdentifier(map.colUserId, '') &&
+        sanitizeSqlIdentifier(map.colUserName, '')
+      );
+      if (hasUsersJoin) {
+        const usersTbl = q(map.usersTable, 'users');
+        const colUName = `U.${q(map.colUserName, 'name')}`;
+        const colLName = sanitizeSqlIdentifier(map.colLogUserName, '') ? `L.${q(map.colLogUserName, 'userName')}` : `NULL`;
+        const colUReg = sanitizeSqlIdentifier(map.colUserRegistration, '') ? `U.${q(map.colUserRegistration, 'registration')}` : `''`;
+        const colUDept = sanitizeSqlIdentifier(map.colUserDepartment, '') ? `U.${q(map.colUserDepartment, 'cargo')}` : `NULL`;
+        const limitClause = cfg.dbType === 'mysql' ? '' : 'TOP 50000';
+        const limitEnd = cfg.dbType === 'mysql' ? 'LIMIT 50000' : '';
+
+        const fallbackQuery = `
+          SELECT ${limitClause}
+            ${colId} AS log_id,
+            ${colTime} AS log_time,
+            L.${q(map.colLogUserId, 'idUser')} AS employee_id,
+            ${colUName} AS user_table_name,
+            ${colLName} AS log_table_name,
+            ${colUReg} AS registration,
+            ${colUDept} AS department,
+            ${colDir} AS direction,
+            ${colDev} AS device_name
+          FROM ${logsTbl} L
+          LEFT JOIN ${usersTbl} U ON L.${q(map.colLogUserId, 'idUser')} = U.${q(map.colUserId, 'id')}
+          ORDER BY ${colTime} DESC
+          ${limitEnd}
+        `;
+        rows = await executeQuery(fallbackQuery);
+      } else {
+        const colUName = sanitizeSqlIdentifier(map.colLogUserName, '')
+          ? `L.${q(map.colLogUserName, 'userName')}`
+          : (sanitizeSqlIdentifier(map.colLogUserId, '') ? `L.${q(map.colLogUserId, 'idUser')}` : `'Funcionário'`);
+        const limitClause = cfg.dbType === 'mysql' ? '' : 'TOP 50000';
+        const limitEnd = cfg.dbType === 'mysql' ? 'LIMIT 50000' : '';
+
+        const fallbackQuery = `
+          SELECT ${limitClause}
+            ${colId} AS log_id,
+            ${colTime} AS log_time,
+            ${colUName} AS employee_id,
+            ${colUName} AS employee_name,
+            '' AS registration,
+            'Geral' AS department,
+            ${colDir} AS direction,
+            ${colDev} AS device_name
+          FROM ${logsTbl} L
+          ORDER BY ${colTime} DESC
+          ${limitEnd}
+        `;
+        rows = await executeQuery(fallbackQuery);
+      }
     }
   }
 
-  const rows = await executeQuery(query);
-  return rows.map((r, idx) => {
+  const mapped = rows.map((r, idx) => {
     const dt = parseLogTimestamp(r.log_time ?? r.time ?? r.DateTime ?? r.data_hora);
+    const resolvedName = cleanEmployeeName(
+      r.user_table_name || r.log_table_name || r.employee_name || r.name || r.nome || `ID ${r.employee_id || idx}`
+    );
+    const resolvedDept = String(
+      r.group_name || r.user_cargo || r.department || r.departamento || r.setor || ''
+    ).trim() || 'Departamento Padrão';
+    const resolvedDir = r.direction || r.info || (r.reader_id === 1 ? 'Entrada' : r.reader_id === 2 ? 'Saída' : null) || r.sentido || r.event || null;
+
     return {
       id: String(r.log_id ?? r.id ?? (idx + 1)),
       timestampObj: dt,
-      employeeId: String(r.employee_id ?? r.idUser ?? r.employee_name ?? '0'),
-      employeeName: String(r.employee_name ?? r.name ?? r.nome ?? `ID ${r.employee_id || idx}`).trim(),
+      employeeId: String(r.employee_id ?? r.idUser ?? resolvedName ?? '0'),
+      employeeName: resolvedName,
       registration: String(r.registration ?? r.matricula ?? r.pis ?? '').trim(),
-      department: String(r.department ?? r.departamento ?? r.setor ?? 'Operacional').trim(),
-      rawDirection: r.direction ?? r.sentido ?? r.event ?? null,
-      deviceName: String(r.device_name ?? r.equipamento ?? 'Catraca iD Control').trim(),
+      department: resolvedDept,
+      rawDirection: resolvedDir,
+      deviceName: String(r.device_name || r.deviceName || r.equipamento || 'Entrada Principal').trim(),
       source: 'idcontrol_db'
     };
   }).filter(item => item.timestampObj !== null);
+
+  // Ordena cronologicamente para filtrar leituras faciais duplicadas consecutivas (< 120 segundos com o mesmo sentido)
+  mapped.sort((a, b) => a.timestampObj.getTime() - b.timestampObj.getTime());
+
+  const debounced = [];
+  const lastPassByEmp = new Map();
+  for (const item of mapped) {
+    const empKey = item.employeeName || item.employeeId;
+    const dirNorm = normalizeDirection(item.rawDirection, 0);
+    const isoDate = formatIsoDate(item.timestampObj);
+    const prev = lastPassByEmp.get(empKey);
+
+    if (
+      prev &&
+      prev.isoDate === isoDate &&
+      prev.dirNorm === dirNorm &&
+      Math.abs(item.timestampObj.getTime() - prev.timeMs) <= 120000
+    ) {
+      // Ignora leitura duplicada na catraca em menos de 2 minutos no mesmo sentido (ex: dupla leitura facial)
+      continue;
+    }
+
+    lastPassByEmp.set(empKey, {
+      isoDate,
+      dirNorm,
+      timeMs: item.timestampObj.getTime()
+    });
+    debounced.push(item);
+  }
+
+  return debounced;
 }
 
 // Gera ou lê registros de demonstração / manuais para uso e validação imediata do RH
@@ -780,8 +1161,8 @@ async function loadAndSyncRhAdjustments() {
   }
 
   try {
-    const [lancRows] = await pool.query('SELECT * FROM `rh_ponto_lancamentos` ORDER BY `log_date` DESC, `log_time` ASC');
-    const [adjRows] = await pool.query('SELECT * FROM `rh_jornada_diaria_ajustes`');
+    const [lancRows] = await pool.execute('SELECT * FROM `rh_ponto_lancamentos` ORDER BY `log_date` DESC, `log_time` ASC');
+    const [adjRows] = await pool.execute('SELECT * FROM `rh_jornada_diaria_ajustes`');
 
     const lancMap = new Map();
     local.punchLancamentos.forEach(item => lancMap.set(item.id, item));
@@ -883,7 +1264,7 @@ async function savePunchLancamentos(payload = {}, userObj = {}) {
   const local = readLocalAdjustments();
   const updatedBy = userObj?.name || userObj?.username || 'RH';
   const actionType = (payload.actionType || 'ADD').toUpperCase(); // 'ADD' | 'EDIT' | 'IGNORE'
-  const employeeName = String(payload.employeeName || '').trim();
+  const employeeName = cleanEmployeeName(payload.employeeName);
   const employeeId = String(payload.employeeId || employeeName || 'MANUAL').trim();
   const registration = String(payload.registration || '-').trim();
   const department = String(payload.department || 'Geral').trim();
@@ -910,7 +1291,7 @@ async function savePunchLancamentos(payload = {}, userObj = {}) {
         writeLocalAdjustments(local);
         const pool = await getCommercialRhPool();
         if (pool) {
-          await pool.query('DELETE FROM `rh_ponto_lancamentos` WHERE `id` = ?', [removed.id]);
+          await pool.execute('DELETE FROM `rh_ponto_lancamentos` WHERE `id` = ?', [String(removed.id)]);
         }
         return { deleted: removed.id, items: [] };
       } else {
@@ -992,11 +1373,11 @@ async function savePunchLancamentos(payload = {}, userObj = {}) {
 
   writeLocalAdjustments(local);
 
-  // Grava também no Banco de Dados Comercial (sedna_pedidos -> rh_ponto_lancamentos)
+  // Grava também no Banco de Dados Comercial via Prepared Statement (sedna_pedidos -> rh_ponto_lancamentos)
   const pool = await getCommercialRhPool();
   if (pool && createdOrUpdated.length > 0) {
     for (const item of createdOrUpdated) {
-      await pool.query(
+      await pool.execute(
         `INSERT INTO \`rh_ponto_lancamentos\`
           (\`id\`, \`action_type\`, \`original_log_id\`, \`employee_id\`, \`employee_name\`, \`registration\`, \`department\`, \`log_date\`, \`log_time\`, \`direction\`, \`reason_type\`, \`notes\`, \`updated_by\`, \`data_json\`)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1010,19 +1391,19 @@ async function savePunchLancamentos(payload = {}, userObj = {}) {
           \`updated_by\` = VALUES(\`updated_by\`),
           \`data_json\` = VALUES(\`data_json\`)`,
         [
-          item.id,
-          item.actionType,
-          item.originalLogId,
-          item.employeeId,
-          item.employeeName,
-          item.registration,
-          item.department,
-          item.logDate,
-          item.logTime,
-          item.direction,
-          item.reasonType,
-          item.notes,
-          item.updatedBy,
+          String(item.id),
+          String(item.actionType),
+          item.originalLogId || null,
+          String(item.employeeId),
+          String(item.employeeName),
+          String(item.registration || ''),
+          String(item.department || ''),
+          String(item.logDate),
+          String(item.logTime),
+          String(item.direction),
+          String(item.reasonType || ''),
+          String(item.notes || ''),
+          String(item.updatedBy || ''),
           JSON.stringify(item)
         ]
       );
@@ -1043,7 +1424,7 @@ async function deletePunchLancamento(id) {
 
   const pool = await getCommercialRhPool();
   if (pool) {
-    await pool.query(
+    await pool.execute(
       'DELETE FROM `rh_ponto_lancamentos` WHERE `id` = ? OR `original_log_id` = ?',
       [cleanId, cleanId]
     );
@@ -1055,7 +1436,7 @@ async function deletePunchLancamento(id) {
 async function saveDailyAdjustment(payload = {}, userObj = {}) {
   const local = readLocalAdjustments();
   const updatedBy = userObj?.name || userObj?.username || 'RH';
-  const employeeName = String(payload.employeeName || '').trim();
+  const employeeName = cleanEmployeeName(payload.employeeName);
   const employeeId = String(payload.employeeId || employeeName || 'MANUAL').trim();
   const registration = String(payload.registration || '-').trim();
   const department = String(payload.department || 'Geral').trim();
@@ -1110,7 +1491,7 @@ async function saveDailyAdjustment(payload = {}, userObj = {}) {
   const pool = await getCommercialRhPool();
   if (pool) {
     for (const item of savedItems) {
-      await pool.query(
+      await pool.execute(
         `INSERT INTO \`rh_jornada_diaria_ajustes\`
           (\`id\`, \`employee_id\`, \`employee_name\`, \`registration\`, \`department\`, \`work_date\`, \`adjustment_mode\`, \`manual_worked_minutes\`, \`bonus_minutes\`, \`custom_expected_minutes\`, \`reason_type\`, \`notes\`, \`updated_by\`, \`data_json\`)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -1124,19 +1505,19 @@ async function saveDailyAdjustment(payload = {}, userObj = {}) {
           \`updated_by\` = VALUES(\`updated_by\`),
           \`data_json\` = VALUES(\`data_json\`)`,
         [
-          item.id,
-          item.employeeId,
-          item.employeeName,
-          item.registration,
-          item.department,
-          item.workDate,
-          item.adjustmentMode,
+          String(item.id),
+          String(item.employeeId),
+          String(item.employeeName),
+          String(item.registration || ''),
+          String(item.department || ''),
+          String(item.workDate),
+          String(item.adjustmentMode),
           item.manualWorkedMinutes,
           item.bonusMinutes,
           item.customExpectedMinutes,
-          item.reasonType,
-          item.notes,
-          item.updatedBy,
+          String(item.reasonType || ''),
+          String(item.notes || ''),
+          String(item.updatedBy || ''),
           JSON.stringify(item)
         ]
       );
@@ -1154,7 +1535,7 @@ async function deleteDailyAdjustment(id) {
 
   const pool = await getCommercialRhPool();
   if (pool) {
-    await pool.query('DELETE FROM `rh_jornada_diaria_ajustes` WHERE `id` = ?', [cleanId]);
+    await pool.execute('DELETE FROM `rh_jornada_diaria_ajustes` WHERE `id` = ?', [cleanId]);
   }
   return { deleted: cleanId };
 }
@@ -1167,7 +1548,8 @@ function makeLocalDateFromIsoAndTime(isoDate, timeHMS) {
 }
 
 // Retorna todos os detalhes de batidas (incluindo ignoradas e originais) e ajuste diário de um funcionário em um dia específico
-async function getDayDetails(employeeName, isoDate) {
+async function getDayDetails(rawEmployeeName, isoDate) {
+  const employeeName = cleanEmployeeName(rawEmployeeName);
   const cfg = loadRhConfig();
   let baseLogs = [];
   if (cfg.enabled) {
@@ -1188,7 +1570,7 @@ async function getDayDetails(employeeName, isoDate) {
 
   const dayPasses = [];
   for (const item of baseLogs) {
-    if (item.employeeName !== employeeName) continue;
+    if (cleanEmployeeName(item.employeeName) !== employeeName) continue;
     const itemIsoDate = formatIsoDate(item.timestampObj);
     const override = editOrIgnoreMap.get(String(item.id));
     const effectiveDate = (override && override.actionType === 'EDIT' && override.logDate) ? override.logDate : itemIsoDate;
@@ -1213,13 +1595,13 @@ async function getDayDetails(employeeName, isoDate) {
       reasonType: override ? override.reasonType : 'Giro Catraca iD Control',
       notes: override ? override.notes : '',
       updatedBy: override ? override.updatedBy : null,
-      deviceName: item.deviceName || 'Catraca iD Control'
+      deviceName: item.deviceName || 'Entrada Principal'
     });
   }
 
   // Adicionar as batidas manuais criadas pelo RH para este funcionário e data
   for (const l of adjData.punchLancamentos) {
-    if (l.actionType === 'ADD' && l.employeeName === employeeName && l.logDate === isoDate) {
+    if (l.actionType === 'ADD' && cleanEmployeeName(l.employeeName) === employeeName && l.logDate === isoDate) {
       const tHMS = normalizeTimeHMS(l.logTime);
       dayPasses.push({
         id: l.id,
@@ -1261,9 +1643,11 @@ async function getAttendanceReports(filters = {}) {
   let dataSource = 'demo';
   let dbWarning = null;
 
+  let activeUsersFromDb = [];
   if (cfg.enabled) {
     try {
       rawTurnstileLogs = await fetchLogsFromDatabase(filters);
+      activeUsersFromDb = await fetchActiveUsersFromDatabase();
       dataSource = 'database';
     } catch (err) {
       dbWarning = `Não foi possível consultar o banco iD Control (${err.message}). Exibindo dados locais/demonstração.`;
@@ -1319,7 +1703,7 @@ async function getAttendanceReports(filters = {}) {
           lancamentoId: l.id,
           timestampObj: dt,
           employeeId: l.employeeId || l.employeeName,
-          employeeName: l.employeeName,
+          employeeName: cleanEmployeeName(l.employeeName),
           registration: l.registration || '-',
           department: l.department || 'Geral',
           rawDirection: l.direction || 'ENTRADA',
@@ -1338,32 +1722,60 @@ async function getAttendanceReports(filters = {}) {
   allLogs.sort((a, b) => a.timestampObj.getTime() - b.timestampObj.getTime());
 
   // Extrair lista completa de funcionários e departamentos para popular os filtros da tela
+  // Se um colaborador possuir cadastro antigo em 'Departamento Padrão' e cadastro novo em um setor específico
+  // (ex: 'PRODUÇÃO MARCENARIA PJ'), prioriza sempre o setor específico e a matrícula preenchida.
   const employeesSet = new Map();
   const departmentsSet = new Set();
+  const isGenericDept = (d) => !d || d === 'Departamento Padrão' || d === 'Geral' || d === 'Operacional';
+
+  const upsertEmployeeMeta = (rawName, id, reg, dept) => {
+    const name = cleanEmployeeName(rawName);
+    if (!name) return;
+    const cleanReg = (reg && reg !== '-') ? String(reg).trim() : '';
+    const cleanDept = String(dept || '').trim() || 'Departamento Padrão';
+    const existing = employeesSet.get(name);
+    if (!existing) {
+      employeesSet.set(name, {
+        id: String(id || name),
+        name,
+        registration: cleanReg,
+        department: cleanDept
+      });
+    } else {
+      if (id && (!existing.id || existing.id === existing.name)) existing.id = String(id);
+      if (cleanReg && !existing.registration) existing.registration = cleanReg;
+      if (!isGenericDept(cleanDept) && isGenericDept(existing.department)) {
+        existing.department = cleanDept;
+      }
+    }
+    if (cleanDept) departmentsSet.add(cleanDept);
+  };
+
+  // Incluir todos os colaboradores ativos cadastrados na tabela `users` do iD Control
+  activeUsersFromDb.forEach(u => {
+    upsertEmployeeMeta(u.name, u.id, u.registration, u.department);
+  });
 
   allLogs.forEach(log => {
-    if (log.employeeName) {
-      employeesSet.set(log.employeeName, {
-        id: log.employeeId,
-        name: log.employeeName,
-        registration: log.registration || '',
-        department: log.department || 'Geral'
-      });
+    upsertEmployeeMeta(log.employeeName, log.employeeId, log.registration, log.department);
+  });
+
+  // Propagar o setor específico e matrícula unificada para todos os registros do colaborador
+  allLogs.forEach(log => {
+    const prof = employeesSet.get(log.employeeName);
+    if (prof) {
+      if (prof.department && isGenericDept(log.department)) {
+        log.department = prof.department;
+      }
+      if (prof.registration && (!log.registration || log.registration === '-')) {
+        log.registration = prof.registration;
+      }
     }
-    if (log.department) departmentsSet.add(log.department);
   });
 
   // Incluir também funcionários que possuem ajustes diários (ex: Viagem a semana toda sem giro na catraca)
   Object.values(adjData.dailyAdjustments || {}).forEach(adj => {
-    if (adj.employeeName && !employeesSet.has(adj.employeeName)) {
-      employeesSet.set(adj.employeeName, {
-        id: adj.employeeId || adj.employeeName,
-        name: adj.employeeName,
-        registration: adj.registration || '-',
-        department: adj.department || 'Geral'
-      });
-    }
-    if (adj.department) departmentsSet.add(adj.department);
+    upsertEmployeeMeta(adj.employeeName, adj.employeeId, adj.registration, adj.department);
   });
 
   // Filtros recebidos
@@ -1505,48 +1917,69 @@ async function getAttendanceReports(filters = {}) {
     if (passes.length === 0 && !dayAdj) continue;
 
     // ---------------------------------------------------------
-    // CÁLCULO 1: RELATÓRIO PAREADO (ENTRADA -> SAÍDA GIRO A GIRO)
+    // CÁLCULO 1: RELATÓRIO PAREADO INTELIGENTE (ENTRADA -> SAÍDA)
     // ---------------------------------------------------------
     const pairs = [];
     let pairedWorkedMinutes = 0;
     let pairedBreakMinutes = 0;
     let hasUnpairedPass = false;
+    let lastCompletedOutMs = null;
 
-    for (let i = 0; i < passes.length; i += 2) {
-      const pIn = passes[i];
-      const pOut = passes[i + 1] || null;
+    let idx = 0;
+    while (idx < passes.length) {
+      const currentPass = passes[idx];
+      const nextPass = passes[idx + 1] || null;
 
-      if (pOut) {
-        const diffMin = Math.max(0, (pOut.timestampMs - pIn.timestampMs) / 60000);
-        pairedWorkedMinutes += diffMin;
-        pairs.push({
-          inTime: pIn.timeHM,
-          inTimeFull: pIn.timeHMS,
-          outTime: pOut.timeHM,
-          outTimeFull: pOut.timeHMS,
-          durationMinutes: Math.round(diffMin),
-          durationFormatted: formatMinutesToHours(diffMin),
-          isManualOrEdited: !!(pIn.isManualRh || pIn.isEditedByRh || pOut.isManualRh || pOut.isEditedByRh),
-          complete: true
-        });
+      if (currentPass.direction === 'ENTRADA') {
+        if (lastCompletedOutMs !== null && currentPass.timestampMs > lastCompletedOutMs) {
+          pairedBreakMinutes += Math.max(0, (currentPass.timestampMs - lastCompletedOutMs) / 60000);
+        }
 
-        const nextIn = passes[i + 2];
-        if (nextIn) {
-          const breakMin = Math.max(0, (nextIn.timestampMs - pOut.timestampMs) / 60000);
-          pairedBreakMinutes += breakMin;
+        if (nextPass && nextPass.direction === 'SAIDA') {
+          const diffMin = Math.max(0, (nextPass.timestampMs - currentPass.timestampMs) / 60000);
+          pairedWorkedMinutes += diffMin;
+          lastCompletedOutMs = nextPass.timestampMs;
+          pairs.push({
+            inTime: currentPass.timeHM,
+            inTimeFull: currentPass.timeHMS,
+            outTime: nextPass.timeHM,
+            outTimeFull: nextPass.timeHMS,
+            durationMinutes: Math.round(diffMin),
+            durationFormatted: formatMinutesToHours(diffMin),
+            isManualOrEdited: !!(currentPass.isManualRh || currentPass.isEditedByRh || nextPass.isManualRh || nextPass.isEditedByRh),
+            complete: true
+          });
+          idx += 2;
+        } else {
+          // Entrada sem Saída correspondente (ou seguida por outra Entrada horas depois)
+          hasUnpairedPass = true;
+          pairs.push({
+            inTime: currentPass.timeHM,
+            inTimeFull: currentPass.timeHMS,
+            outTime: 'Sem Saída',
+            outTimeFull: 'Batida Ímpar (Falta Saída)',
+            durationMinutes: 0,
+            durationFormatted: 'Incompleto',
+            isManualOrEdited: !!(currentPass.isManualRh || currentPass.isEditedByRh),
+            complete: false
+          });
+          idx += 1;
         }
       } else {
+        // Giro de SAÍDA sem uma ENTRADA aberta antes dele
         hasUnpairedPass = true;
+        lastCompletedOutMs = currentPass.timestampMs;
         pairs.push({
-          inTime: pIn.timeHM,
-          inTimeFull: pIn.timeHMS,
-          outTime: 'Sem Saída',
-          outTimeFull: 'Batida Ímpar',
+          inTime: 'Sem Entrada',
+          inTimeFull: 'Batida Ímpar (Falta Entrada)',
+          outTime: currentPass.timeHM,
+          outTimeFull: currentPass.timeHMS,
           durationMinutes: 0,
           durationFormatted: 'Incompleto',
-          isManualOrEdited: !!(pIn.isManualRh || pIn.isEditedByRh),
+          isManualOrEdited: !!(currentPass.isManualRh || currentPass.isEditedByRh),
           complete: false
         });
+        idx += 1;
       }
     }
 
@@ -1716,8 +2149,10 @@ async function getAttendanceReports(filters = {}) {
     dbType: cfg.dbType,
     dbHost: cfg.host,
     dbName: cfg.database,
+    dbUser: cfg.user,
     commercialDbConnected: !!adjData.commercialDbConnected,
-    commercialDbName: cfg.mainDatabaseName || 'sedna_pedidos',
+    commercialDbName: cfg.commercialDb?.database || cfg.mainDatabaseName || 'sedna_pedidos',
+    commercialDbUser: cfg.commercialDb?.user || 'sedna_app',
     dbWarning,
     config: {
       workdayMinutes,
@@ -1743,8 +2178,11 @@ async function getAttendanceReports(filters = {}) {
 
 module.exports = {
   loadRhConfig,
+  maskRhConfigForClient,
   saveRhConfig,
+  sanitizeSqlIdentifier,
   testAndInspectDatabase,
+  testCommercialDbConnection,
   getAttendanceReports,
   getDayDetails,
   savePunchLancamentos,

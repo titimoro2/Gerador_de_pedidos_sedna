@@ -301,6 +301,128 @@
     .rh-table-responsive {
       width: 100%;
       overflow-x: auto;
+      cursor: grab;
+      position: relative;
+      scrollbar-width: thin;
+      scrollbar-color: #94a3b8 #f1f5f9;
+    }
+
+    .rh-table-responsive.is-dragging {
+      cursor: grabbing !important;
+      user-select: none !important;
+      -webkit-user-select: none !important;
+    }
+
+    .rh-table-responsive::-webkit-scrollbar {
+      height: 10px;
+    }
+    .rh-table-responsive::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    .rh-table-responsive::-webkit-scrollbar-thumb {
+      background: #94a3b8;
+      border-radius: 99px;
+    }
+    .rh-table-responsive::-webkit-scrollbar-thumb:hover {
+      background: #64748b;
+    }
+
+    .rh-scroll-tools {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: #e0f2fe;
+      border: 1px solid #bae6fd;
+      color: #0369a1;
+      padding: 4px 10px;
+      border-radius: 99px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .rh-scroll-btn {
+      background: #ffffff;
+      border: 1px solid #7dd3fc;
+      color: #0284c7;
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .rh-scroll-btn:hover {
+      background: #0284c7;
+      color: #ffffff;
+    }
+
+    /* Barra de Paginação Inferior */
+    .rh-pagination-bar {
+      padding: 12px 20px;
+      background: #f8fafc;
+      border-top: 1px solid #cbd5e1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 0.82rem;
+      color: #334155;
+    }
+
+    .rh-pagination-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .rh-page-btn {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      color: #1e293b;
+      min-width: 32px;
+      height: 32px;
+      padding: 0 10px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s;
+    }
+
+    .rh-page-btn:hover:not(:disabled) {
+      border-color: #0284c7;
+      color: #0284c7;
+      background: #f0f9ff;
+    }
+
+    .rh-page-btn.active {
+      background: #0284c7;
+      border-color: #0284c7;
+      color: #ffffff;
+      font-weight: 700;
+    }
+
+    .rh-page-btn:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .rh-page-size-select {
+      height: 32px;
+      padding: 0 10px;
+      border-radius: 6px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      color: #0f172a;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
     }
 
     .rh-table {
@@ -658,10 +780,15 @@
       <div class="rh-panel-header">
         <div>
           <h3>📊 Consolidado Mensal de Horas Trabalhadas por Funcionário</h3>
-          <span class="text-muted" style="font-size: 0.8rem;">Comparativo completo das horas acumuladas no período filtrado (Clique em "Ver Detalhes" para focar em um funcionário)</span>
+          <span class="text-muted" style="font-size: 0.8rem;">Comparativo completo das horas acumuladas no período filtrado (Clique em "Ver Dias" para focar em um funcionário)</span>
+        </div>
+        <div class="rh-scroll-tools no-print">
+          <span>🖐️ Clique e arraste em qualquer lugar da tabela para mover p/ os lados</span>
+          <button type="button" class="rh-scroll-btn" onclick="scrollActiveTable(-360)" title="Mover tabela para a esquerda">◀</button>
+          <button type="button" class="rh-scroll-btn" onclick="scrollActiveTable(360)" title="Mover tabela para a direita">▶</button>
         </div>
       </div>
-      <div class="rh-table-responsive">
+      <div class="rh-table-responsive" id="wrap-monthly">
         <table class="rh-table" id="tableMonthly">
           <thead>
             <tr>
@@ -683,6 +810,7 @@
           <tbody id="tbodyMonthly"></tbody>
         </table>
       </div>
+      <div class="rh-pagination-bar no-print" id="pagination-monthly"></div>
     </section>
 
     <!-- PAINEL 1: RELATÓRIO 1 - HORAS PAREADAS (ENTRADA & SAÍDA GIRO A GIRO) -->
@@ -692,8 +820,13 @@
           <h3>🔄 Relatório 1: Apuração Diária por Horas Pareadas (Entradas &amp; Saídas)</h3>
           <span class="text-muted" style="font-size: 0.8rem;">Soma cada período entre uma Entrada e sua respectiva Saída na catraca e aponta batidas ímpares</span>
         </div>
+        <div class="rh-scroll-tools no-print">
+          <span>🖐️ Clique e arraste em qualquer lugar da tabela para mover p/ os lados</span>
+          <button type="button" class="rh-scroll-btn" onclick="scrollActiveTable(-360)" title="Mover tabela para a esquerda">◀</button>
+          <button type="button" class="rh-scroll-btn" onclick="scrollActiveTable(360)" title="Mover tabela para a direita">▶</button>
+        </div>
       </div>
-      <div class="rh-table-responsive">
+      <div class="rh-table-responsive" id="wrap-paired">
         <table class="rh-table" id="tablePaired">
           <thead>
             <tr>
@@ -713,6 +846,7 @@
           <tbody id="tbodyPaired"></tbody>
         </table>
       </div>
+      <div class="rh-pagination-bar no-print" id="pagination-paired"></div>
     </section>
 
     <!-- PAINEL 2: RELATÓRIO 2 - JORNADA DIRETA (1ª ENTRADA ATÉ ÚLTIMA SAÍDA) -->
@@ -722,8 +856,13 @@
           <h3>⏳ Relatório 2: Apuração pela 1ª Batida até a Última Batida do Dia</h3>
           <span class="text-muted" style="font-size: 0.8rem;">Calcula o tempo decorrido entre o primeiro giro do dia e o último giro do dia na catraca (+ ajustes de viagem/serviço externo)</span>
         </div>
+        <div class="rh-scroll-tools no-print">
+          <span>🖐️ Clique e arraste em qualquer lugar da tabela para mover p/ os lados</span>
+          <button type="button" class="rh-scroll-btn" onclick="scrollActiveTable(-360)" title="Mover tabela para a esquerda">◀</button>
+          <button type="button" class="rh-scroll-btn" onclick="scrollActiveTable(360)" title="Mover tabela para a direita">▶</button>
+        </div>
       </div>
-      <div class="rh-table-responsive">
+      <div class="rh-table-responsive" id="wrap-direct">
         <table class="rh-table" id="tableDirect">
           <thead>
             <tr>
@@ -744,6 +883,7 @@
           <tbody id="tbodyDirect"></tbody>
         </table>
       </div>
+      <div class="rh-pagination-bar no-print" id="pagination-direct"></div>
     </section>
 
     <!-- PAINEL 3: RELATÓRIO 3 - DADOS BRUTOS DA CATRACA (GIRO A GIRO) -->
@@ -753,7 +893,12 @@
           <h3>📋 Relatório 3: Registros Brutos da Catraca iD Control &amp; Lançamentos do RH (Giro a Giro)</h3>
           <span class="text-muted" style="font-size: 0.8rem;">Listagem integral de cada passagem registrada na catraca ou adicionada/editada pelo RH</span>
         </div>
-        <div class="no-print" style="display: flex; align-items: center; gap: 8px;">
+        <div class="no-print" style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <div class="rh-scroll-tools">
+            <span>🖐️ Arraste p/ os lados</span>
+            <button type="button" class="rh-scroll-btn" onclick="scrollActiveTable(-360)" title="Mover tabela para a esquerda">◀</button>
+            <button type="button" class="rh-scroll-btn" onclick="scrollActiveTable(360)" title="Mover tabela para a direita">▶</button>
+          </div>
           <label for="fltDirectionRaw" style="font-size: 0.78rem; font-weight: 600;">Sentido:</label>
           <select id="fltDirectionRaw" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 0.82rem;">
             <option value="ALL">Todos (Entradas e Saídas)</option>
@@ -762,7 +907,7 @@
           </select>
         </div>
       </div>
-      <div class="rh-table-responsive">
+      <div class="rh-table-responsive" id="wrap-raw">
         <table class="rh-table" id="tableRaw">
           <thead>
             <tr>
@@ -781,6 +926,7 @@
           <tbody id="tbodyRaw"></tbody>
         </table>
       </div>
+      <div class="rh-pagination-bar no-print" id="pagination-raw"></div>
     </section>
 
   </main>
@@ -1059,112 +1205,197 @@
     </div>
   </div>
 
-  <!-- MODAL: CONFIGURAÇÃO DO BANCO DE DADOS iD CONTROL (SQL SERVER / MYSQL) -->
+  <!-- MODAL: CONFIGURAÇÃO DOS 2 LOGINS DE BANCO DE DADOS DO RH -->
   <div class="modal-overlay" id="modalIdControlConfig">
-    <div class="modal-card" style="max-width: 780px; width: 95%;">
+    <div class="modal-card" style="max-width: 840px; width: 95%;">
       <div class="modal-header flex-between">
         <div>
-          <h3 style="margin: 0; font-size: 1.2rem; color: var(--rh-primary);">⚙️ Conexão Banco de Dados Catraca iD Control</h3>
-          <span class="text-muted" style="font-size: 0.8rem;">Conecta ao mesmo servidor MySQL do sistema (em outro Database) ou a um banco externo</span>
+          <h3 style="margin: 0; font-size: 1.2rem; color: var(--rh-primary);">⚙️ Configuração dos 2 Logins de Banco de Dados (RH)</h3>
+          <span class="text-muted" style="font-size: 0.8rem;">Isolamento de Segurança: Login 1 exclusivo de Visualização (iD Control) + Login 2 exclusivo de Gravação (Banco Comercial)</span>
         </div>
         <button type="button" id="btnCloseIdControlConfig" class="btn-icon" style="font-size: 1.5rem; background: none; border: none; cursor: pointer;">&times;</button>
       </div>
-      <div class="modal-body" style="max-height: 78vh; overflow-y: auto; padding-top: 12px;">
-        <div style="background: #f8fafc; padding: 14px; border-radius: 8px; border: 1px solid #cbd5e1; margin-bottom: 16px;">
-          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 700; color: #0f172a;">
-            <input type="checkbox" id="cfgEnabled" style="width: 18px; height: 18px; accent-color: var(--rh-accent);">
-            <span>Ativar leitura em tempo real do Banco de Dados do iD Control</span>
-          </label>
-          <small class="text-muted" style="display: block; margin-top: 4px; margin-left: 28px;">
-            As credenciais de Host, Porta, Usuário e Senha já são preenchidas automaticamente a partir do MySQL principal do servidor. Basta informar ou selecionar o <strong>Nome do Banco (Database)</strong> da catraca abaixo!
-          </small>
+      <div class="modal-body" style="max-height: 80vh; overflow-y: auto; padding-top: 12px;">
+
+        <!-- ========================================================================= -->
+        <!-- BLOCO 1: LOGIN 1 - BANCO DA CATRACA iD CONTROL (SOMENTE VISUALIZAÇÃO)     -->
+        <!-- ========================================================================= -->
+        <div style="background: #f0f9ff; border: 2px solid #7dd3fc; border-radius: 10px; padding: 16px; margin-bottom: 18px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;">
+            <div>
+              <h4 style="margin: 0; font-size: 1rem; color: #0369a1; display: flex; align-items: center; gap: 6px;">
+                🔒 LOGIN 1: Banco da Catraca iD Control (Apenas Visualização)
+              </h4>
+              <small style="color: #0c4a6e; font-size: 0.77rem;">
+                Use aqui um usuário do banco com permissão <strong>somente de leitura (<code>SELECT</code>)</strong>. O sistema bloqueia qualquer comando de escrita nesta conexão.
+              </small>
+            </div>
+            <span class="dir-badge in" style="background: #dcfce7; color: #166534; border-color: #86efac;">
+              🛡️ SOMENTE LEITURA (SELECT)
+            </span>
+          </div>
+
+          <div style="background: #ffffff; padding: 10px 12px; border-radius: 8px; border: 1px solid #bae6fd; margin-bottom: 12px;">
+            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 700; color: #0f172a; font-size: 0.86rem;">
+              <input type="checkbox" id="cfgEnabled" style="width: 17px; height: 17px; accent-color: var(--rh-accent);">
+              <span>Ativar leitura em tempo real do Banco de Dados da Catraca iD Control</span>
+            </label>
+          </div>
+
+          <div class="grid-form grid-2" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px;">
+            <div class="form-group">
+              <label>Tipo de Banco (Catraca)</label>
+              <select id="cfgDbType" class="form-control">
+                <option value="mysql">MySQL / MariaDB</option>
+                <option value="mssql">Microsoft SQL Server</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Nome do Banco da Catraca (Database)</label>
+              <input type="text" id="cfgDatabase" class="form-control" placeholder="acesso" value="acesso">
+              <select id="cfgDatabaseList" class="form-control" style="display: none; margin-top: 6px; background: #e0f2fe; border-color: #0284c7; font-weight: 600;"></select>
+            </div>
+            <div class="form-group">
+              <label>Host / IP do Banco da Catraca</label>
+              <input type="text" id="cfgHost" class="form-control" placeholder="192.168.33.180 ou localhost">
+            </div>
+            <div class="form-group">
+              <label>Porta (MySQL: 3306 / SQL: 1433)</label>
+              <input type="number" id="cfgPort" class="form-control" placeholder="3306" value="3306">
+            </div>
+            <div class="form-group">
+              <label>Usuário de Visualização (Login 1) *</label>
+              <input type="text" id="cfgUser" class="form-control" placeholder="rh_leitura" value="rh_leitura">
+            </div>
+            <div class="form-group">
+              <label>Senha do Usuário de Visualização (Login 1)</label>
+              <input type="password" id="cfgPassword" class="form-control" placeholder="Senha do usuário somente leitura">
+            </div>
+          </div>
+
+          <!-- Dica de comando SQL para criar o usuário somente leitura no MySQL -->
+          <details style="margin-top: 10px; background: #ffffff; border: 1px dashed #7dd3fc; border-radius: 6px; padding: 8px 12px; font-size: 0.77rem; color: #334155;">
+            <summary style="cursor: pointer; font-weight: 700; color: #0284c7;">
+              💡 Como criar um usuário com permissão APENAS de visualização no MySQL? (Clique para ver o comando)
+            </summary>
+            <div style="margin-top: 8px;">
+              Rode o script <code>setup-security.sql</code> ou os comandos abaixo no seu MySQL 5.7 para criar o usuário <code>rh_leitura</code> com princípio do menor privilégio (apenas <code>SELECT</code> no banco <code>acesso</code> da catraca):
+              <pre style="background: #0f172a; color: #e2e8f0; padding: 8px 10px; border-radius: 6px; overflow-x: auto; margin: 6px 0 0; font-size: 0.75rem;">CREATE USER IF NOT EXISTS 'rh_leitura'@'127.0.0.1' IDENTIFIED BY 'TROQUE_POR_SENHA_FORTE_LEITURA';
+CREATE USER IF NOT EXISTS 'rh_leitura'@'localhost' IDENTIFIED BY 'TROQUE_POR_SENHA_FORTE_LEITURA';
+GRANT SELECT, SHOW VIEW ON `acesso`.* TO 'rh_leitura'@'127.0.0.1';
+GRANT SELECT, SHOW VIEW ON `acesso`.* TO 'rh_leitura'@'localhost';
+FLUSH PRIVILEGES;</pre>
+            </div>
+          </details>
+
+          <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
+            <button type="button" id="btnTestAndDiscover" class="btn btn-sm btn-primary" style="background: #0284c7; border-color: #0284c7;">
+              🔌 Testar Login 1 (Leitura Catraca) &amp; Detectar Tabelas
+            </button>
+          </div>
+
+          <div id="cfgConnectionAlert" style="display: none; margin-top: 10px; padding: 10px 14px; border-radius: 6px; font-size: 0.82rem;"></div>
+
+          <!-- Mapeamento de Tabelas e Colunas da Catraca -->
+          <div style="margin-top: 14px; padding-top: 12px; border-top: 1px solid #bae6fd;">
+            <h5 style="margin: 0 0 8px; font-size: 0.88rem; color: var(--rh-primary);">Mapeamento de Tabelas do iD Control (Banco <code>acesso</code>)</h5>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); gap: 8px;">
+              <div class="form-group">
+                <label>Tabela de Giros / Acessos</label>
+                <input type="text" id="mapLogsTable" class="form-control" placeholder="logs" value="logs">
+              </div>
+              <div class="form-group">
+                <label>Coluna Data/Hora do Giro</label>
+                <input type="text" id="mapColLogTime" class="form-control" placeholder="time" value="time">
+              </div>
+              <div class="form-group">
+                <label>Coluna ID Funcionário no Giro</label>
+                <input type="text" id="mapColLogUserId" class="form-control" placeholder="idUser" value="idUser">
+              </div>
+              <div class="form-group">
+                <label>Coluna Sentido (Entrada/Saída)</label>
+                <input type="text" id="mapColLogDirection" class="form-control" placeholder="info" value="info">
+              </div>
+              <div class="form-group">
+                <label>Tabela de Funcionários</label>
+                <input type="text" id="mapUsersTable" class="form-control" placeholder="users" value="users">
+              </div>
+              <div class="form-group">
+                <label>Coluna ID na Tab. Funcionários</label>
+                <input type="text" id="mapColUserId" class="form-control" placeholder="id" value="id">
+              </div>
+              <div class="form-group">
+                <label>Coluna Nome do Funcionário</label>
+                <input type="text" id="mapColUserName" class="form-control" placeholder="name" value="name">
+              </div>
+              <div class="form-group">
+                <label>Coluna Matrícula / PIS</label>
+                <input type="text" id="mapColUserRegistration" class="form-control" placeholder="registration" value="registration">
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div class="grid-form grid-2" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
-          <div class="form-group">
-            <label>Tipo de Banco de Dados</label>
-            <select id="cfgDbType" class="form-control">
-              <option value="mysql">MySQL / MariaDB (Mesmo Servidor MySQL - Outro Banco)</option>
-              <option value="mssql">Microsoft SQL Server</option>
-            </select>
+        <!-- ========================================================================= -->
+        <!-- BLOCO 2: LOGIN 2 - BANCO DO SISTEMA COMERCIAL (GRAVAÇÃO DAS TABELAS RH)   -->
+        <!-- ========================================================================= -->
+        <div style="background: #f8fafc; border: 2px solid #cbd5e1; border-radius: 10px; padding: 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 10px;">
+            <div>
+              <h4 style="margin: 0; font-size: 1rem; color: #0f172a; display: flex; align-items: center; gap: 6px;">
+                💾 LOGIN 2: Banco do Sistema Comercial (Gravação dos Lançamentos do RH)
+              </h4>
+              <small style="color: #475569; font-size: 0.77rem;">
+                Segundo login independente usado para salvar batidas manuais, edições de horário, viagens e serviços externos nas tabelas <code>rh_ponto_lancamentos</code> e <code>rh_jornada_diaria_ajustes</code>.
+              </small>
+            </div>
+            <span class="dir-badge" style="background: #ede9fe; color: #5b21b6; border: 1px solid #c4b5fd;">
+              ✍️ LEITURA &amp; GRAVAÇÃO (TABELAS RH)
+            </span>
           </div>
-          <div class="form-group">
-            <label>Nome do Banco da Catraca (Database)</label>
-            <input type="text" id="cfgDatabase" class="form-control" placeholder="Ex: idsecure, idcontrol, catraca...">
-            <select id="cfgDatabaseList" class="form-control" style="display: none; margin-top: 6px; background: #e0f2fe; border-color: #0284c7; font-weight: 600;"></select>
-          </div>
-          <div class="form-group">
-            <label>Host / IP do Servidor MySQL</label>
-            <input type="text" id="cfgHost" class="form-control" placeholder="localhost">
-          </div>
-          <div class="form-group">
-            <label>Porta (Padrão MySQL: 3306)</label>
-            <input type="number" id="cfgPort" class="form-control" placeholder="3306">
-          </div>
-          <div class="form-group">
-            <label>Usuário do MySQL</label>
-            <input type="text" id="cfgUser" class="form-control" placeholder="root">
-          </div>
-          <div class="form-group">
-            <label>Senha do MySQL (Deixe em branco p/ usar a do servidor)</label>
-            <input type="password" id="cfgPassword" class="form-control" placeholder="Usa a senha do MySQL do servidor automaticamente">
-          </div>
-        </div>
 
-        <div style="margin-top: 14px; display: flex; justify-content: flex-end;">
-          <button type="button" id="btnTestAndDiscover" class="btn btn-sm btn-secondary">
-            🔌 Listar Bancos do MySQL &amp; Detectar Tabelas Automaticamente
-          </button>
-        </div>
+          <div style="background: #ffffff; padding: 10px 12px; border-radius: 8px; border: 1px solid #cbd5e1; margin-bottom: 12px;">
+            <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 700; color: #0f172a; font-size: 0.86rem;">
+              <input type="checkbox" id="commDbEnabled" checked style="width: 17px; height: 17px; accent-color: #2563eb;">
+              <span>Salvar lançamentos/ajustes do RH nas tabelas do Banco Comercial (MySQL)</span>
+            </label>
+          </div>
 
-        <div id="cfgConnectionAlert" style="display: none; margin-top: 12px; padding: 10px 14px; border-radius: 6px; font-size: 0.84rem;"></div>
-
-        <!-- Mapeamento de Tabelas e Colunas da Catraca -->
-        <div style="margin-top: 18px; padding-top: 14px; border-top: 1px solid #cbd5e1;">
-          <h4 style="margin: 0 0 8px; font-size: 0.95rem; color: var(--rh-primary);">Mapeamento de Tabelas do iD Control</h4>
-          <p class="text-muted" style="font-size: 0.78rem; margin-top: 0; margin-bottom: 12px;">
-            Clique em <strong>"Listar Bancos do MySQL &amp; Detectar Tabelas"</strong> acima para o sistema preencher as tabelas e colunas automaticamente:
-          </p>
-
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+          <div class="grid-form grid-2" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px;">
             <div class="form-group">
-              <label>Tabela de Giros / Acessos</label>
-              <input type="text" id="mapLogsTable" class="form-control" placeholder="AccessLogs">
+              <label>Host / IP do Banco Comercial</label>
+              <input type="text" id="commDbHost" class="form-control" placeholder="localhost">
             </div>
             <div class="form-group">
-              <label>Coluna de Data/Hora do Giro</label>
-              <input type="text" id="mapColLogTime" class="form-control" placeholder="time">
+              <label>Porta MySQL</label>
+              <input type="number" id="commDbPort" class="form-control" placeholder="3306" value="3306">
             </div>
             <div class="form-group">
-              <label>Coluna ID do Funcionário no Giro</label>
-              <input type="text" id="mapColLogUserId" class="form-control" placeholder="idUser">
+              <label>Nome do Banco Comercial (Database)</label>
+              <input type="text" id="commDbDatabase" class="form-control" placeholder="sedna_pedidos" value="sedna_pedidos">
             </div>
             <div class="form-group">
-              <label>Coluna de Sentido / Evento</label>
-              <input type="text" id="mapColLogDirection" class="form-control" placeholder="event">
+              <label>Usuário de Gravação (Login 2) *</label>
+              <input type="text" id="commDbUser" class="form-control" placeholder="Ex: root ou sedna_sistema">
             </div>
-            <div class="form-group">
-              <label>Tabela de Funcionários</label>
-              <input type="text" id="mapUsersTable" class="form-control" placeholder="Users">
-            </div>
-            <div class="form-group">
-              <label>Coluna ID na Tabela Funcionários</label>
-              <input type="text" id="mapColUserId" class="form-control" placeholder="id">
-            </div>
-            <div class="form-group">
-              <label>Coluna Nome do Funcionário</label>
-              <input type="text" id="mapColUserName" class="form-control" placeholder="name">
-            </div>
-            <div class="form-group">
-              <label>Coluna Matrícula / PIS (Opcional)</label>
-              <input type="text" id="mapColUserRegistration" class="form-control" placeholder="registration">
+            <div class="form-group" style="grid-column: span 2;">
+              <label>Senha do Usuário de Gravação (Login 2)</label>
+              <input type="password" id="commDbPassword" class="form-control" placeholder="Senha do usuário com permissão no banco sedna_pedidos">
             </div>
           </div>
+
+          <div style="margin-top: 12px; display: flex; justify-content: flex-end;">
+            <button type="button" id="btnTestCommercialDb" class="btn btn-sm btn-secondary">
+              🔌 Testar Login 2 (Gravação no Banco Comercial)
+            </button>
+          </div>
+
+          <div id="commDbConnectionAlert" style="display: none; margin-top: 10px; padding: 10px 14px; border-radius: 6px; font-size: 0.82rem;"></div>
         </div>
 
         <div class="modal-actions flex-between" style="margin-top: 20px; padding-top: 12px; border-top: 1px solid #e2e8f0;">
           <button type="button" id="btnCancelIdControlConfig" class="btn btn-secondary">Fechar</button>
-          <button type="button" id="btnSaveIdControlConfig" class="btn btn-primary">💾 Salvar Configuração &amp; Carregar Dados</button>
+          <button type="button" id="btnSaveIdControlConfig" class="btn btn-primary">💾 Salvar os 2 Logins &amp; Carregar Dados</button>
         </div>
       </div>
     </div>
@@ -1207,6 +1438,6 @@
     </div>
   </div>
 
-  <script src="/js/rh.js?v=1.2"></script>
+  <script src="/js/rh.js?v=1.6"></script>
 </body>
 </html>

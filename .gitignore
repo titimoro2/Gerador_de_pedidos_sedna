@@ -1,18 +1,25 @@
 # ==========================================
-# GITIGNORE - SISTEMA GERADOR DE PEDIDOS SEDNA
+# GITIGNORE - SISTEMA GERADOR DE PEDIDOS SEDNA (APPSEC HARDENED)
 # ==========================================
 
-# Dependências (nunca devem ir para o GitHub)
+# Dependências e artefatos de build (nunca devem ir para o GitHub)
 node_modules/
+dist/
+build/
+coverage/
+.nyc_output/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 package-lock.json
 
-# Configurações de ambiente locais (senhas do banco de dados e credenciais)
+# Variáveis de ambiente e segredos (NUNCA versionar .env)
 .env
 *.env
-*.env.*
+.env.*
+!.env.example
+
+# Configurações de banco e credenciais locais em disco
 data/db-config.json
 data/db-config*.json
 data/rh-db-config.json
@@ -20,10 +27,17 @@ data/rh-manual-logs.json
 data/rh-adjustments.json
 data/backups_locais/
 data/backups/
+
+# Chaves privadas, certificados TLS/SSL e artefatos criptográficos
 ssl/
 *.key
 *.pem
 *.pfx
+*.p12
+*.crt
+*.cer
+*.csr
+*.der
 
 # Sessões temporárias ativas e dados locais de usuários/propostas
 data/sessions.json
@@ -32,7 +46,11 @@ data/active-proposals/
 *.lnk
 
 # Arquivos de log e temporários do sistema operacional
+logs/
 *.log
+*.pid
+*.seed
+*.pid.lock
 .DS_Store
 Thumbs.db
 
@@ -42,5 +60,10 @@ Thumbs.db
 .venv/
 venv/
 
-# Instaladores e binários
+# Instaladores, binários e dumps/backups de banco de dados
 *.exe
+*.sql
+*.sql.gz
+*.dump
+*.bak
+!setup-security.sql

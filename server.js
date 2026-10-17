@@ -13,6 +13,7 @@ const os = require('os');
 const selfsigned = require('selfsigned');
 const db = require('./db');
 const rhDb = require('./rh-db');
+const security = require('./security');
 
 const app = express();
 
@@ -20,17 +21,40 @@ const app = express();
 const HTTP_PORT = process.env.HTTP_PORT !== undefined ? parseInt(process.env.HTTP_PORT, 10) : 80;
 const HTTPS_PORT = process.env.HTTPS_PORT !== undefined ? parseInt(process.env.HTTPS_PORT, 10) : (process.env.PORT && process.env.PORT !== '3000' ? parseInt(process.env.PORT, 10) : 443);
 
-// Trust reverse proxy (Cloudflare Tunnel)
+// Trust reverse proxy (Nginx / Cloudflare Tunnel)
 app.set('trust proxy', 1);
 
 // Disable server fingerprint
 app.disable('x-powered-by');
 
-// Security HTTP headers
+// Security HTTP headers (HSTS, CSP, X-Frame-Options: DENY, X-Content-Type-Options: nosniff, Referrer-Policy)
 app.use(helmet({
-  contentSecurityPolicy: false, // Preserves Google Fonts, inline preview & PDF printing
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrcAttr: ["'unsafe-inline'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+      imgSrc: ["'self'", "data:", "blob:", "https:", "http:"],
+      connectSrc: ["'self'"],
+      frameAncestors: ["'none'"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"]
+    }
+  },
+  frameguard: { action: 'deny' }, // X-Frame-Options: DENY
+  noSniff: true,                  // X-Content-Type-Options: nosniff
+  hsts: {                         // Strict-Transport-Security
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   crossOriginEmbedderPolicy: false,
-  crossOriginResourcePolicy: { policy: "cross-origin" }
+  crossOriginResourcePolicy: { policy: "same-origin" }
 }));
 
 // Directories & Files
@@ -73,13 +97,16 @@ function writeJson(filePath, data) {
   db.syncFileToDb(filePath, data).catch(() => {});
 }
 
-// Initialize users.json if missing
+// Initialize users.json if missing (with Bcrypt hashed passwords from environment variables)
+const initialAdminPassHash = security.hashPasswordSync(process.env.DEFAULT_ADMIN_PASSWORD || 'ChangeMeAdmin@2026!');
+const initialUserPassHash = security.hashPasswordSync(process.env.DEFAULT_USER_PASSWORD || 'ChangeMeUser@2026!');
+
 if (!fs.existsSync(USERS_PATH)) {
   writeJson(USERS_PATH, [
     {
       id: "usr-admin",
       username: "admin",
-      password: "admin",
+      password: initialAdminPassHash,
       name: "Administrador",
       role: "admin",
       roleLabel: "Administrador",
@@ -88,12 +115,13 @@ if (!fs.existsSync(USERS_PATH)) {
       canManageUsers: true,
       phone: "(47) 9 9187-9441",
       email: "admin@sednagroup.com.br",
+      mustChangePassword: true,
       createdAt: new Date().toISOString()
     },
     {
       id: "usr-debora",
       username: "debora",
-      password: "123",
+      password: initialUserPassHash,
       name: "Débora Santos",
       role: "commercial",
       roleLabel: "Comercial",
@@ -102,12 +130,13 @@ if (!fs.existsSync(USERS_PATH)) {
       canManageUsers: false,
       phone: "(47) 9 9187-9441",
       email: "comercial@sednagroup.com.br",
+      mustChangePassword: true,
       createdAt: new Date().toISOString()
     },
     {
       id: "usr-thiago",
       username: "thiago",
-      password: "123",
+      password: initialUserPassHash,
       name: "Thiago",
       role: "commercial",
       roleLabel: "Comercial",
@@ -116,12 +145,13 @@ if (!fs.existsSync(USERS_PATH)) {
       canManageUsers: false,
       phone: "(47) 9 9999-0000",
       email: "thiago@sednagroup.com.br",
+      mustChangePassword: true,
       createdAt: new Date().toISOString()
     },
     {
       id: "usr-fabio",
       username: "fabio",
-      password: "123",
+      password: initialUserPassHash,
       name: "Fábio",
       role: "president",
       roleLabel: "Presidente",
@@ -130,12 +160,13 @@ if (!fs.existsSync(USERS_PATH)) {
       canManageUsers: false,
       phone: "(47) 9 8888-0000",
       email: "fabio@sednagroup.com.br",
+      mustChangePassword: true,
       createdAt: new Date().toISOString()
     },
     {
       id: "usr-rh",
       username: "rh",
-      password: "123",
+      password: initialUserPassHash,
       name: "Recursos Humanos",
       role: "rh",
       roleLabel: "RH (Recursos Humanos)",
@@ -149,14 +180,15 @@ if (!fs.existsSync(USERS_PATH)) {
     }
   ]);
 } else {
-  // Garante que exista pelo menos o usuário inicial de RH caso ainda não tenha sido criado
+  // Garante que exista o usuário inicial de RH e migra automaticamente senhas legadas em texto plano para Bcrypt
   try {
-    const existingUsers = readJson(USERS_PATH, []);
+    let existingUsers = readJson(USERS_PATH, []);
+    let changed = false;
     if (Array.isArray(existingUsers) && !existingUsers.some(u => u.role === 'rh' || u.username.toLowerCase() === 'rh')) {
       existingUsers.push({
         id: "usr-rh",
         username: "rh",
-        password: "123",
+        password: initialUserPassHash,
         name: "Recursos Humanos",
         role: "rh",
         roleLabel: "RH (Recursos Humanos)",
@@ -168,9 +200,18 @@ if (!fs.existsSync(USERS_PATH)) {
         mustChangePassword: true,
         createdAt: new Date().toISOString()
       });
-      writeJson(USERS_PATH, existingUsers);
+      changed = true;
     }
-  } catch (e) {}
+    const migration = security.migrateUsersPasswordsToBcrypt(existingUsers);
+    if (migration.migratedCount > 0 || changed) {
+      writeJson(USERS_PATH, migration.users);
+      if (migration.migratedCount > 0) {
+        console.log(`[AppSec] ${migration.migratedCount} senha(s) migrada(s) automaticamente para hash Bcrypt.`);
+      }
+    }
+  } catch (e) {
+    console.warn('[AppSec] Aviso na verificação inicial de usuários:', e.message);
+  }
 }
 
 // Sessions kept in memory during server runtime (reset on server start)
@@ -197,9 +238,9 @@ function getUserActiveProposalPath(username, modelName = null) {
   const safeName = (username || 'default').toLowerCase().replace(/[^a-z0-9_-]/g, '_');
   if (modelName) {
     const safeModel = String(modelName).trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
-    return path.join(ACTIVE_PROPOSALS_DIR, `draft_${safeName}_${safeModel}.json`);
+    return security.resolveSafePath(ACTIVE_PROPOSALS_DIR, `draft_${safeName}_${safeModel}.json`);
   }
-  return path.join(ACTIVE_PROPOSALS_DIR, `active_${safeName}.json`);
+  return security.resolveSafePath(ACTIVE_PROPOSALS_DIR, `active_${safeName}.json`);
 }
 
 function getUserContact(user) {
@@ -230,12 +271,16 @@ function getProposalAuthor(data) {
   return { username: 'admin', name: 'Administrador' };
 }
 
-// Auth Middleware
+// Auth Middleware (Suporta Cookie HttpOnly `sedna_session` e Header Authorization Bearer)
 function authMiddleware(req, res, next) {
   const authHeader = req.headers.authorization;
+  const cookies = security.parseCookies(req.headers.cookie);
   let token = null;
+
   if (authHeader && authHeader.startsWith('Bearer ')) {
     token = authHeader.substring(7).trim();
+  } else if (cookies[security.SESSION_COOKIE_NAME]) {
+    token = String(cookies[security.SESSION_COOKIE_NAME]).trim();
   } else if (req.query && req.query.token) {
     token = String(req.query.token).trim();
   }
@@ -245,14 +290,25 @@ function authMiddleware(req, res, next) {
   }
 
   const session = sessions[token];
+  const now = Date.now();
+  const maxIdleMs = security.SESSION_TTL_SECONDS * 1000;
+  if (session.lastActivity && (now - session.lastActivity > maxIdleMs)) {
+    delete sessions[token];
+    saveSessions();
+    db.deleteSession(token).catch(() => {});
+    security.clearAuthSessionCookie(res, req);
+    return res.status(401).json({ error: 'Sessão expirada por inatividade. Faça login novamente.' });
+  }
+
   const freshUser = findUser(session.username);
   if (!freshUser) {
     delete sessions[token];
     saveSessions();
+    security.clearAuthSessionCookie(res, req);
     return res.status(401).json({ error: 'Usuário não encontrado.' });
   }
 
-  session.lastActivity = Date.now();
+  session.lastActivity = now;
 
   req.token = token;
   req.user = {
@@ -539,8 +595,12 @@ const uploadModelPhoto = multer({
 });
 
 // Middlewares
-app.use(cors());
+app.use(cors({
+  origin: true,
+  credentials: true
+}));
 app.use(express.json({ limit: '10mb' }));
+app.use(security.globalInputSanitizerMiddleware);
 
 // Rate Limiter: Global API protection (300 requests/minute per IP)
 const globalApiLimiter = rateLimit({
@@ -561,6 +621,15 @@ const loginLimiter = rateLimit({
   message: { error: 'Muitas tentativas incorretas de login. Por segurança, aguarde 15 minutos para tentar novamente.' }
 });
 
+// Rate Limiter: Sensitive Auth & Admin Configuration Endpoints (25 requests per 15 minutes per IP)
+const sensitiveActionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 25,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Limite de operações sensíveis excedido. Aguarde alguns minutos antes de tentar novamente.' }
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Dedicated Login Page Route
@@ -573,7 +642,6 @@ app.get('/api/version', (req, res) => {
   let revision = 'c726481';
   let updatedAt = new Date().toISOString();
 
-  // Read version.json
   const versionPath = path.join(__dirname, 'version.json');
   if (fs.existsSync(versionPath)) {
     try {
@@ -583,7 +651,6 @@ app.get('/api/version', (req, res) => {
     } catch (e) {}
   }
 
-  // Try dynamic git rev-parse if git is available
   try {
     const { execSync } = require('child_process');
     const gitRev = execSync('git rev-parse --short HEAD', { timeout: 1000 }).toString().trim();
@@ -601,48 +668,70 @@ app.get('/api/version', (req, res) => {
 
 // ================= AUTH ROUTES =================
 
-// Login (protected with anti-brute-force rate limiter)
-app.post('/api/auth/login', loginLimiter, (req, res) => {
-  const { username, password } = req.body || {};
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Usuário e senha são obrigatórios.' });
+// Login (protected with anti-brute-force rate limiter, schema validation, Bcrypt & HttpOnly/Secure/SameSite=Lax Cookie)
+app.post('/api/auth/login', loginLimiter, security.validateLoginSchema, async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    const user = findUser(username);
+    if (!user) {
+      return res.status(401).json({ error: 'Usuário ou senha inválidos.' });
+    }
+
+    const { valid, needsRehash } = await security.verifyPassword(password, user.password);
+    if (!valid) {
+      return res.status(401).json({ error: 'Usuário ou senha inválidos.' });
+    }
+
+    // Se a senha estava em texto plano legado, migra imediatamente para Bcrypt
+    if (needsRehash) {
+      const users = readJson(USERS_PATH, []);
+      const idx = users.findIndex(u => u.id === user.id || u.username.toLowerCase() === user.username.toLowerCase());
+      if (idx !== -1) {
+        users[idx].password = await security.hashPassword(password);
+        writeJson(USERS_PATH, users);
+        db.backupUser(users[idx]).catch(() => {});
+      }
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const userProfile = {
+      id: user.id,
+      username: user.username,
+      name: user.name,
+      role: user.role,
+      roleLabel: user.roleLabel || user.role,
+      canViewAll: !!user.canViewAll,
+      canEditAll: !!user.canEditAll,
+      canManageUsers: !!user.canManageUsers,
+      phone: user.phone || '',
+      email: user.email || '',
+      mustChangePassword: user.mustChangePassword !== false,
+      createdAt: user.createdAt
+    };
+
+    const now = Date.now();
+    const expiresAt = new Date(now + security.SESSION_TTL_SECONDS * 1000).toISOString();
+
+    sessions[token] = {
+      ...userProfile,
+      sessionCreated: new Date(now).toISOString(),
+      expiresAt,
+      lastActivity: now
+    };
+    saveSessions();
+    db.backupSession(token, { user: userProfile, expiresAt }).catch(() => {});
+
+    // Define cookie de sessão seguro: HttpOnly, Secure, SameSite=Lax
+    security.setAuthSessionCookie(res, req, token);
+
+    res.json({
+      message: `Bem-vindo(a), ${user.name}!`,
+      token,
+      user: userProfile
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro interno ao processar autenticação.' });
   }
-
-  const user = findUser(username);
-  if (!user || user.password !== password) {
-    return res.status(401).json({ error: 'Usuário ou senha inválidos.' });
-  }
-
-  const token = crypto.randomBytes(32).toString('hex');
-  const userProfile = {
-    id: user.id,
-    username: user.username,
-    name: user.name,
-    role: user.role,
-    roleLabel: user.roleLabel || user.role,
-    canViewAll: !!user.canViewAll,
-    canEditAll: !!user.canEditAll,
-    canManageUsers: !!user.canManageUsers,
-    phone: user.phone || '',
-    email: user.email || '',
-    mustChangePassword: user.mustChangePassword !== false,
-    createdAt: user.createdAt
-  };
-
-  const now = Date.now();
-
-  sessions[token] = {
-    ...userProfile,
-    sessionCreated: new Date().toISOString(),
-    lastActivity: now
-  };
-  saveSessions();
-
-  res.json({
-    message: `Bem-vindo(a), ${user.name}!`,
-    token,
-    user: userProfile
-  });
 });
 
 // Current User Profile
@@ -650,67 +739,64 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
   res.json({ user: req.user });
 });
 
-// Change Password (Self-service & Mandatory first login)
-app.post('/api/auth/change-password', authMiddleware, (req, res) => {
-  const { currentPassword, newPassword, confirmPassword } = req.body || {};
+// Change Password (Self-service & Mandatory first login with Bcrypt hashing)
+app.post('/api/auth/change-password', sensitiveActionLimiter, authMiddleware, security.validateChangePasswordSchema, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+    const cleanNew = newPassword.trim();
 
-  if (!newPassword || typeof newPassword !== 'string' || !newPassword.trim()) {
-    return res.status(400).json({ error: 'A nova senha não pode ser vazia.' });
-  }
-
-  const cleanNew = newPassword.trim();
-  if (cleanNew.length < 4) {
-    return res.status(400).json({ error: 'A nova senha deve ter no mínimo 4 caracteres.' });
-  }
-
-  if (confirmPassword && confirmPassword.trim() !== cleanNew) {
-    return res.status(400).json({ error: 'A confirmação de senha não confere com a nova senha.' });
-  }
-
-  const users = readJson(USERS_PATH, []);
-  const userIndex = users.findIndex(u => u.id === req.user.id || u.username.toLowerCase() === req.user.username.toLowerCase());
-  if (userIndex === -1) {
-    return res.status(404).json({ error: 'Usuário não encontrado.' });
-  }
-
-  const currentUser = users[userIndex];
-  const isMandatoryFirstAccess = currentUser.mustChangePassword !== false;
-
-  // If user already changed their password before (voluntary change), verify current password
-  if (!isMandatoryFirstAccess || (currentPassword && currentPassword.trim())) {
-    if (!currentPassword || currentUser.password !== currentPassword.trim()) {
-      return res.status(400).json({ error: 'Senha atual incorreta.' });
+    const users = readJson(USERS_PATH, []);
+    const userIndex = users.findIndex(u => u.id === req.user.id || u.username.toLowerCase() === req.user.username.toLowerCase());
+    if (userIndex === -1) {
+      return res.status(404).json({ error: 'Usuário não encontrado.' });
     }
+
+    const currentUser = users[userIndex];
+    const isMandatoryFirstAccess = currentUser.mustChangePassword !== false;
+
+    // Se for troca voluntária (ou informou a senha atual), valida com Bcrypt
+    if (!isMandatoryFirstAccess || (currentPassword && currentPassword.trim())) {
+      if (!currentPassword) {
+        return res.status(400).json({ error: 'Informe sua senha atual.' });
+      }
+      const checkCurrent = await security.verifyPassword(currentPassword.trim(), currentUser.password);
+      if (!checkCurrent.valid) {
+        return res.status(400).json({ error: 'Senha atual incorreta.' });
+      }
+    }
+
+    // Impede definir exatamente a mesma senha anterior
+    const sameCheck = await security.verifyPassword(cleanNew, currentUser.password);
+    if (sameCheck.valid) {
+      return res.status(400).json({ error: 'A nova senha deve ser diferente da senha anterior.' });
+    }
+
+    // Impede senhas fracas triviais
+    if (['123', 'admin', '123456', 'senha', 'password'].includes(cleanNew.toLowerCase())) {
+      return res.status(400).json({ error: 'Por favor, escolha uma senha mais segura.' });
+    }
+
+    // Aplica hash Bcrypt com salt (12 rounds) e limpa flag de troca obrigatória
+    currentUser.password = await security.hashPassword(cleanNew);
+    currentUser.mustChangePassword = false;
+    currentUser.passwordChangedAt = new Date().toISOString();
+
+    users[userIndex] = currentUser;
+    writeJson(USERS_PATH, users);
+    db.backupUser(currentUser).catch(() => {});
+
+    if (req.token && sessions[req.token]) {
+      sessions[req.token].mustChangePassword = false;
+      saveSessions();
+    }
+
+    res.json({
+      message: 'Senha alterada com sucesso!',
+      mustChangePassword: false
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao alterar senha: ' + err.message });
   }
-
-  // Prevent setting the exact same password
-  if (currentUser.password === cleanNew) {
-    return res.status(400).json({ error: 'A nova senha deve ser diferente da senha anterior.' });
-  }
-
-  // Prevent common weak defaults
-  if (['123', 'admin', '123456', 'senha', 'password'].includes(cleanNew.toLowerCase())) {
-    return res.status(400).json({ error: 'Por favor, escolha uma senha mais segura.' });
-  }
-
-  // Update password & clear mandatory change flag
-  currentUser.password = cleanNew;
-  currentUser.mustChangePassword = false;
-  currentUser.passwordChangedAt = new Date().toISOString();
-
-  users[userIndex] = currentUser;
-  writeJson(USERS_PATH, users);
-  db.backupUser(currentUser).catch(() => {});
-
-  if (req.token && sessions[req.token]) {
-    sessions[req.token].mustChangePassword = false;
-    saveSessions();
-  }
-
-  res.json({
-    message: 'Senha alterada com sucesso!',
-    mustChangePassword: false
-  });
 });
 
 // Logout
@@ -718,7 +804,9 @@ app.post('/api/auth/logout', authMiddleware, (req, res) => {
   if (req.token && sessions[req.token]) {
     delete sessions[req.token];
     saveSessions();
+    db.deleteSession(req.token).catch(() => {});
   }
+  security.clearAuthSessionCookie(res, req);
   res.json({ message: 'Sessão encerrada com sucesso.' });
 });
 
@@ -726,17 +814,21 @@ app.post('/api/auth/logout', authMiddleware, (req, res) => {
 app.post('/api/auth/logout-beacon', express.text({ type: '*/*' }), (req, res) => {
   try {
     const data = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
-    if (data && data.token && sessions[data.token]) {
-      delete sessions[data.token];
+    const cookies = security.parseCookies(req.headers.cookie);
+    const token = (data && data.token) || cookies[security.SESSION_COOKIE_NAME];
+    if (token && sessions[token]) {
+      delete sessions[token];
       saveSessions();
+      db.deleteSession(token).catch(() => {});
     }
   } catch (e) {}
+  security.clearAuthSessionCookie(res, req);
   res.status(204).end();
 });
 
 // ================= USER MANAGEMENT ROUTES (CRUD) =================
 
-// List all users
+// List all users (never exposes password hashes)
 app.get('/api/users', authMiddleware, (req, res) => {
   if (!req.user.canManageUsers) {
     return res.status(403).json({ error: 'Acesso restrito ao Administrador.' });
@@ -761,182 +853,187 @@ app.get('/api/users', authMiddleware, (req, res) => {
   res.json(safeUsers);
 });
 
-// Create new user
-app.post('/api/users', authMiddleware, (req, res) => {
+// Create new user (with Bcrypt password hashing & schema validation)
+app.post('/api/users', sensitiveActionLimiter, authMiddleware, security.validateUserPayloadSchema(true), async (req, res) => {
   if (!req.user.canManageUsers) {
     return res.status(403).json({ error: 'Acesso restrito ao Administrador.' });
   }
 
-  const { username, password, name, role, phone, email, canViewAll, canEditAll, canManageUsers, mustChangePassword } = req.body || {};
-  if (!username || !password || !name) {
-    return res.status(400).json({ error: 'Usuário, senha e nome completo são obrigatórios.' });
-  }
-
-  const cleanUsername = username.trim().toLowerCase();
-  const users = readJson(USERS_PATH, []);
-  if (users.some(u => u.username.toLowerCase() === cleanUsername)) {
-    return res.status(400).json({ error: `O usuário "${cleanUsername}" já existe.` });
-  }
-
-  const userRole = role || 'commercial';
-  let roleLabel = 'Comercial';
-  let finalCanViewAll = false;
-  let finalCanEditAll = false;
-  let finalCanManageUsers = false;
-
-  if (userRole === 'admin') {
-    roleLabel = 'Administrador';
-    finalCanViewAll = true;
-    finalCanEditAll = true;
-    finalCanManageUsers = true;
-  } else if (userRole === 'president') {
-    roleLabel = 'Presidente';
-    finalCanViewAll = true;
-    finalCanEditAll = false;
-    finalCanManageUsers = false;
-  } else if (userRole === 'rh') {
-    roleLabel = 'RH (Recursos Humanos)';
-    finalCanViewAll = false;
-    finalCanEditAll = false;
-    finalCanManageUsers = false;
-  } else {
-    roleLabel = 'Comercial';
-    finalCanViewAll = false;
-    finalCanEditAll = false;
-    finalCanManageUsers = false;
-  }
-
-  // Explicit overrides if provided in form
-  if (typeof canViewAll === 'boolean') finalCanViewAll = canViewAll;
-  if (typeof canEditAll === 'boolean') finalCanEditAll = canEditAll;
-  if (typeof canManageUsers === 'boolean') finalCanManageUsers = canManageUsers;
-
-  const newUser = {
-    id: `usr-${Date.now()}`,
-    username: cleanUsername,
-    password: password.trim(),
-    name: name.trim(),
-    role: userRole,
-    roleLabel,
-    canViewAll: finalCanViewAll,
-    canEditAll: finalCanEditAll,
-    canManageUsers: finalCanManageUsers,
-    phone: (phone || '').trim(),
-    email: (email || '').trim(),
-    mustChangePassword: mustChangePassword !== undefined ? !!mustChangePassword : true,
-    createdAt: new Date().toISOString()
-  };
-
-  users.push(newUser);
-  writeJson(USERS_PATH, users);
-
-  res.json({
-    message: `Usuário "${newUser.name}" cadastrado com sucesso!`,
-    user: {
-      id: newUser.id,
-      username: newUser.username,
-      name: newUser.name,
-      role: newUser.role,
-      roleLabel: newUser.roleLabel,
-      canViewAll: newUser.canViewAll,
-      canEditAll: newUser.canEditAll,
-      canManageUsers: newUser.canManageUsers,
-      phone: newUser.phone,
-      email: newUser.email,
-      mustChangePassword: newUser.mustChangePassword,
-      createdAt: newUser.createdAt
+  try {
+    const { username, password, name, role, phone, email, canViewAll, canEditAll, canManageUsers, mustChangePassword } = req.body || {};
+    if (!username || !password || !name) {
+      return res.status(400).json({ error: 'Usuário, senha e nome completo são obrigatórios.' });
     }
-  });
+
+    const cleanUsername = username.trim().toLowerCase();
+    const users = readJson(USERS_PATH, []);
+    if (users.some(u => u.username.toLowerCase() === cleanUsername)) {
+      return res.status(400).json({ error: `O usuário "${cleanUsername}" já existe.` });
+    }
+
+    const userRole = role || 'commercial';
+    let roleLabel = 'Comercial';
+    let finalCanViewAll = false;
+    let finalCanEditAll = false;
+    let finalCanManageUsers = false;
+
+    if (userRole === 'admin') {
+      roleLabel = 'Administrador';
+      finalCanViewAll = true;
+      finalCanEditAll = true;
+      finalCanManageUsers = true;
+    } else if (userRole === 'president') {
+      roleLabel = 'Presidente';
+      finalCanViewAll = true;
+      finalCanEditAll = false;
+      finalCanManageUsers = false;
+    } else if (userRole === 'rh') {
+      roleLabel = 'RH (Recursos Humanos)';
+      finalCanViewAll = false;
+      finalCanEditAll = false;
+      finalCanManageUsers = false;
+    } else {
+      roleLabel = 'Comercial';
+      finalCanViewAll = false;
+      finalCanEditAll = false;
+      finalCanManageUsers = false;
+    }
+
+    if (typeof canViewAll === 'boolean') finalCanViewAll = canViewAll;
+    if (typeof canEditAll === 'boolean') finalCanEditAll = canEditAll;
+    if (typeof canManageUsers === 'boolean') finalCanManageUsers = canManageUsers;
+
+    const hashedPassword = await security.hashPassword(password.trim());
+
+    const newUser = {
+      id: `usr-${Date.now()}`,
+      username: cleanUsername,
+      password: hashedPassword,
+      name: name.trim(),
+      role: userRole,
+      roleLabel,
+      canViewAll: finalCanViewAll,
+      canEditAll: finalCanEditAll,
+      canManageUsers: finalCanManageUsers,
+      phone: (phone || '').trim(),
+      email: (email || '').trim(),
+      mustChangePassword: mustChangePassword !== undefined ? !!mustChangePassword : true,
+      createdAt: new Date().toISOString()
+    };
+
+    users.push(newUser);
+    writeJson(USERS_PATH, users);
+
+    res.json({
+      message: `Usuário "${newUser.name}" cadastrado com sucesso!`,
+      user: {
+        id: newUser.id,
+        username: newUser.username,
+        name: newUser.name,
+        role: newUser.role,
+        roleLabel: newUser.roleLabel,
+        canViewAll: newUser.canViewAll,
+        canEditAll: newUser.canEditAll,
+        canManageUsers: newUser.canManageUsers,
+        phone: newUser.phone,
+        email: newUser.email,
+        mustChangePassword: newUser.mustChangePassword,
+        createdAt: newUser.createdAt
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao criar usuário: ' + err.message });
+  }
 });
 
-// Update user
-app.put('/api/users/:id', authMiddleware, (req, res) => {
+// Update user (with Bcrypt password hashing & schema validation)
+app.put('/api/users/:id', sensitiveActionLimiter, authMiddleware, security.validateSafeParam('id'), security.validateUserPayloadSchema(false), async (req, res) => {
   if (!req.user.canManageUsers) {
     return res.status(403).json({ error: 'Acesso restrito ao Administrador.' });
   }
 
-  const userId = req.params.id;
-  const users = readJson(USERS_PATH, []);
-  const index = users.findIndex(u => u.id === userId);
-  if (index === -1) {
-    return res.status(404).json({ error: 'Usuário não encontrado.' });
-  }
+  try {
+    const userId = req.params.id;
+    const users = readJson(USERS_PATH, []);
+    const index = users.findIndex(u => u.id === userId);
+    if (index === -1) {
+      return res.status(404).json({ error: 'Usuário não encontrado.' });
+    }
 
-  const { name, password, role, phone, email, canViewAll, canEditAll, canManageUsers, mustChangePassword } = req.body || {};
-  const current = users[index];
-  const isEditingOtherAccount = current.id !== req.user.id && current.username.toLowerCase() !== req.user.username.toLowerCase();
+    const { name, password, role, phone, email, canViewAll, canEditAll, canManageUsers, mustChangePassword } = req.body || {};
+    const current = users[index];
+    const isEditingOtherAccount = current.id !== req.user.id && current.username.toLowerCase() !== req.user.username.toLowerCase();
 
-  if (name && name.trim()) current.name = name.trim();
-  if (password && password.trim()) {
-    current.password = password.trim();
-    if (isEditingOtherAccount) {
-      // Regra estrita: Quando o administrador altera a senha de OUTRA conta,
-      // essa conta é 100% OBRIGADA a trocar de senha no próximo login!
-      current.mustChangePassword = true;
-      current.passwordResetBy = req.user.username;
-      current.passwordResetAt = new Date().toISOString();
+    if (name && name.trim()) current.name = name.trim();
+    if (password && password.trim()) {
+      current.password = await security.hashPassword(password.trim());
+      if (isEditingOtherAccount) {
+        current.mustChangePassword = true;
+        current.passwordResetBy = req.user.username;
+        current.passwordResetAt = new Date().toISOString();
 
-      // Invalida sessões ativas da conta para forçar novo login e troca de senha imediata
-      Object.keys(sessions).forEach(tok => {
-        if (sessions[tok].username && sessions[tok].username.toLowerCase() === current.username.toLowerCase()) {
-          delete sessions[tok];
-        }
-      });
-      saveSessions();
+        Object.keys(sessions).forEach(tok => {
+          if (sessions[tok].username && sessions[tok].username.toLowerCase() === current.username.toLowerCase()) {
+            delete sessions[tok];
+            db.deleteSession(tok).catch(() => {});
+          }
+        });
+        saveSessions();
+      } else if (typeof mustChangePassword === 'boolean') {
+        current.mustChangePassword = mustChangePassword;
+      }
     } else if (typeof mustChangePassword === 'boolean') {
       current.mustChangePassword = mustChangePassword;
     }
-  } else if (typeof mustChangePassword === 'boolean') {
-    current.mustChangePassword = mustChangePassword;
-  }
 
-  if (phone !== undefined) current.phone = phone.trim();
-  if (email !== undefined) current.email = email.trim();
+    if (phone !== undefined) current.phone = phone.trim();
+    if (email !== undefined) current.email = email.trim();
 
-  // Role and permissions
-  if (role) {
-    current.role = role;
-    if (role === 'admin') current.roleLabel = 'Administrador';
-    else if (role === 'president') current.roleLabel = 'Presidente';
-    else if (role === 'rh') current.roleLabel = 'RH (Recursos Humanos)';
-    else current.roleLabel = 'Comercial';
-  }
-
-  if (typeof canViewAll === 'boolean') current.canViewAll = canViewAll;
-  if (typeof canEditAll === 'boolean') current.canEditAll = canEditAll;
-  if (typeof canManageUsers === 'boolean') {
-    // Prevent removing admin permission on the default admin
-    if (current.username === 'admin') {
-      current.canManageUsers = true;
-    } else {
-      current.canManageUsers = canManageUsers;
+    if (role) {
+      current.role = role;
+      if (role === 'admin') current.roleLabel = 'Administrador';
+      else if (role === 'president') current.roleLabel = 'Presidente';
+      else if (role === 'rh') current.roleLabel = 'RH (Recursos Humanos)';
+      else current.roleLabel = 'Comercial';
     }
-  }
 
-  users[index] = current;
-  writeJson(USERS_PATH, users);
-  db.backupUser(current).catch(() => {});
-
-  res.json({
-    message: `Usuário "${current.name}" atualizado com sucesso!`,
-    user: {
-      id: current.id,
-      username: current.username,
-      name: current.name,
-      role: current.role,
-      roleLabel: current.roleLabel,
-      canViewAll: current.canViewAll,
-      canEditAll: current.canEditAll,
-      canManageUsers: current.canManageUsers,
-      phone: current.phone,
-      email: current.email,
-      mustChangePassword: current.mustChangePassword !== false
+    if (typeof canViewAll === 'boolean') current.canViewAll = canViewAll;
+    if (typeof canEditAll === 'boolean') current.canEditAll = canEditAll;
+    if (typeof canManageUsers === 'boolean') {
+      if (current.username === 'admin') {
+        current.canManageUsers = true;
+      } else {
+        current.canManageUsers = canManageUsers;
+      }
     }
-  });
+
+    users[index] = current;
+    writeJson(USERS_PATH, users);
+    db.backupUser(current).catch(() => {});
+
+    res.json({
+      message: `Usuário "${current.name}" atualizado com sucesso!`,
+      user: {
+        id: current.id,
+        username: current.username,
+        name: current.name,
+        role: current.role,
+        roleLabel: current.roleLabel,
+        canViewAll: current.canViewAll,
+        canEditAll: current.canEditAll,
+        canManageUsers: current.canManageUsers,
+        phone: current.phone,
+        email: current.email,
+        mustChangePassword: current.mustChangePassword !== false
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao atualizar usuário: ' + err.message });
+  }
 });
 
 // Delete user
-app.delete('/api/users/:id', authMiddleware, (req, res) => {
+app.delete('/api/users/:id', sensitiveActionLimiter, authMiddleware, security.validateSafeParam('id'), (req, res) => {
   if (!req.user.canManageUsers) {
     return res.status(403).json({ error: 'Acesso restrito ao Administrador.' });
   }
@@ -959,10 +1056,10 @@ app.delete('/api/users/:id', authMiddleware, (req, res) => {
   writeJson(USERS_PATH, users);
   db.deleteUser(userId).catch(() => {});
 
-  // Invalidate any active sessions of deleted user
   Object.keys(sessions).forEach(tok => {
     if (sessions[tok].username === target.username) {
       delete sessions[tok];
+      db.deleteSession(tok).catch(() => {});
     }
   });
   saveSessions();
@@ -970,21 +1067,29 @@ app.delete('/api/users/:id', authMiddleware, (req, res) => {
   res.json({ message: `Usuário "${target.name}" removido com sucesso.` });
 });
 
-// ================= PROPOSALS ROUTES =================
+// ================= PROPOSALS ROUTES (ANTI-IDOR / BOLA HARDENED) =================
+
+// Restringe rotas comerciais de propostas a usuários do Comercial, Diretoria ou Administração
+function requireCommercialAccess(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Não autenticado.' });
+  }
+  if (req.user.role === 'rh' && !req.user.canViewAll && !req.user.canEditAll && !req.user.canManageUsers) {
+    return res.status(403).json({ error: 'Acesso restrito ao módulo Comercial.' });
+  }
+  next();
+}
 
 // Get active working proposal for current user
-app.get('/api/proposal/active', authMiddleware, (req, res) => {
+app.get('/api/proposal/active', authMiddleware, requireCommercialAccess, (req, res) => {
   const userActivePath = getUserActiveProposalPath(req.user.username);
   let proposal = readJson(userActivePath);
 
   if (!proposal) {
-    // If user has no active draft yet, load shared active proposal or default
     proposal = readJson(ACTIVE_PROPOSAL_PATH) || readJson(DEFAULT_PROPOSAL_PATH);
     if (proposal) {
-      // Set author to current user for their working draft
       proposal = JSON.parse(JSON.stringify(proposal));
       proposal.author = { username: req.user.username, name: req.user.name };
-      // Auto-set contact if user has specific contact details
       if (req.user.phone || req.user.email) {
         if (!proposal.contactAndValidity) proposal.contactAndValidity = {};
         if (!proposal.contactAndValidity.contact) proposal.contactAndValidity.contact = {};
@@ -1000,11 +1105,9 @@ app.get('/api/proposal/active', authMiddleware, (req, res) => {
     return res.status(500).json({ error: 'Nenhuma proposta encontrada.' });
   }
 
-  // Determine read-only status for this proposal relative to current user
   const author = getProposalAuthor(proposal);
   const isReadOnly = !req.user.canEditAll && (author.username.toLowerCase() !== req.user.username.toLowerCase());
 
-  // If proposal belongs to current user, ensure contact reflects the user's latest standard contact
   if (!isReadOnly) {
     const userContact = getUserContact(req.user);
     if (userContact && (userContact.name || userContact.phone || userContact.email)) {
@@ -1024,8 +1127,8 @@ app.get('/api/proposal/active', authMiddleware, (req, res) => {
   });
 });
 
-// Save active working proposal
-app.post('/api/proposal/active', authMiddleware, (req, res) => {
+// Save active working proposal (with Anti-IDOR / BOLA verification on disk)
+app.post('/api/proposal/active', authMiddleware, requireCommercialAccess, security.validateProposalSchema, (req, res) => {
   const proposal = req.body;
   if (!proposal) {
     return res.status(400).json({ error: 'Dados inválidos.' });
@@ -1033,22 +1136,44 @@ app.post('/api/proposal/active', authMiddleware, (req, res) => {
 
   const existingAuthor = getProposalAuthor(proposal);
   const isAuthor = existingAuthor.username.toLowerCase() === req.user.username.toLowerCase();
-  
-  // President or other user cannot edit proposal belonging to another author
+
   if (!req.user.canEditAll && !isAuthor) {
     return res.status(403).json({
       error: `Apenas o autor (${existingAuthor.name}) ou o Administrador pode salvar alterações nesta proposta.`
     });
   }
 
-  // Ensure author is recorded
-  if (!proposal.author || !proposal.author.username) {
+  // Anti-IDOR / BOLA: Se o payload informar um proposal.id já salvo em disco,
+  // verifica o autor REAL gravado no arquivo em disco (ignorando req.body.author falsificado)
+  let verifiedSavedFile = null;
+  if (proposal.id) {
+    try {
+      const candidateFile = security.resolveSafePath(PROPOSALS_DIR, `${proposal.id}.json`);
+      if (fs.existsSync(candidateFile)) {
+        const diskProposal = readJson(candidateFile);
+        if (diskProposal) {
+          const diskAuthor = getProposalAuthor(diskProposal);
+          const isDiskOwner = diskAuthor.username.toLowerCase() === req.user.username.toLowerCase();
+          if (!req.user.canEditAll && !isDiskOwner) {
+            return res.status(403).json({
+              error: `Bloqueio Anti-IDOR: Esta proposta pertence a "${diskAuthor.name}". Você não tem permissão para sobrescrevê-la.`
+            });
+          }
+          verifiedSavedFile = candidateFile;
+        }
+      }
+    } catch (err) {
+      return res.status(400).json({ error: 'ID de proposta inválido.' });
+    }
+  }
+
+  // Garante que usuários comuns nunca possam forjar outro autor
+  if (!req.user.canEditAll || !proposal.author || !proposal.author.username) {
     proposal.author = { username: req.user.username, name: req.user.name };
   }
 
   proposal.updatedAt = new Date().toISOString();
 
-  // Sync contact info per user: if contact was updated in this boat, update user's profile and all drafts of this user
   if (proposal.contactAndValidity?.contact) {
     const rawContact = proposal.contactAndValidity.contact;
     const contactName = (rawContact.name || '').trim();
@@ -1063,7 +1188,6 @@ app.post('/api/proposal/active', authMiddleware, (req, res) => {
         email: contactEmail
       };
 
-      // 1. Update user profile in USERS_PATH & MySQL
       const users = readJson(USERS_PATH, []);
       const uIndex = users.findIndex(u => u.username.toLowerCase() === targetUsername.toLowerCase());
       if (uIndex !== -1) {
@@ -1074,14 +1198,13 @@ app.post('/api/proposal/active', authMiddleware, (req, res) => {
         db.backupUser(users[uIndex]).catch(() => {});
       }
 
-      // 2. Synchronize all drafts of this user across ALL boats
       const safeUser = targetUsername.toLowerCase().replace(/[^a-z0-9_-]/g, '_');
       try {
         if (fs.existsSync(ACTIVE_PROPOSALS_DIR)) {
           const files = fs.readdirSync(ACTIVE_PROPOSALS_DIR);
           for (const file of files) {
             if (file.startsWith(`draft_${safeUser}_`) || file === `active_${safeUser}.json`) {
-              const filePath = path.join(ACTIVE_PROPOSALS_DIR, file);
+              const filePath = security.resolveSafePath(ACTIVE_PROPOSALS_DIR, file);
               try {
                 const draftData = readJson(filePath);
                 if (draftData) {
@@ -1100,26 +1223,19 @@ app.post('/api/proposal/active', authMiddleware, (req, res) => {
       }
     }
   }
-  
-  // Write to user active proposal
+
   const userActivePath = getUserActiveProposalPath(req.user.username);
   writeJson(userActivePath, proposal);
 
-  // Also write to user model-specific draft proposal
   if (proposal.general?.modelName) {
     const modelDraftPath = getUserActiveProposalPath(req.user.username, proposal.general.modelName);
     writeJson(modelDraftPath, proposal);
   }
 
-  // If this proposal was saved from a file in PROPOSALS_DIR, update it there too
-  if (proposal.id) {
-    const savedFile = path.join(PROPOSALS_DIR, `${proposal.id}.json`);
-    if (fs.existsSync(savedFile)) {
-      writeJson(savedFile, proposal);
-    }
+  if (verifiedSavedFile) {
+    writeJson(verifiedSavedFile, proposal);
   }
 
-  // Update base model template if applicable
   if (proposal.general?.modelName) {
     saveModelTemplate(proposal.general.modelName, proposal);
   }
@@ -1128,7 +1244,7 @@ app.post('/api/proposal/active', authMiddleware, (req, res) => {
 });
 
 // Reset active proposal to default
-app.post('/api/proposal/reset', authMiddleware, (req, res) => {
+app.post('/api/proposal/reset', authMiddleware, requireCommercialAccess, (req, res) => {
   const defaultProp = readJson(DEFAULT_PROPOSAL_PATH);
   if (!defaultProp) {
     return res.status(500).json({ error: 'Modelo padrão não encontrado.' });
@@ -1136,7 +1252,7 @@ app.post('/api/proposal/reset', authMiddleware, (req, res) => {
   const cloned = JSON.parse(JSON.stringify(defaultProp));
   cloned.author = { username: req.user.username, name: req.user.name };
   cloned.updatedAt = new Date().toISOString();
-  
+
   const userContact = getUserContact(req.user);
   if (userContact) {
     if (!cloned.contactAndValidity) cloned.contactAndValidity = {};
@@ -1148,7 +1264,7 @@ app.post('/api/proposal/reset', authMiddleware, (req, res) => {
 });
 
 // Generate new proposal number (next in sequence)
-app.post('/api/proposals/generate-number', authMiddleware, (req, res) => {
+app.post('/api/proposals/generate-number', authMiddleware, requireCommercialAccess, (req, res) => {
   const settings = readJson(SETTINGS_PATH, { nextSequence: 1, year: new Date().getFullYear(), prefix: 'PROP' });
   const currentYear = new Date().getFullYear();
   if (settings.year !== currentYear) {
@@ -1166,8 +1282,8 @@ app.post('/api/proposals/generate-number', authMiddleware, (req, res) => {
   res.json({ proposalNumber, revision, fullCode });
 });
 
-// Create new revision (e.g. REV1 -> REV2 -> REV3)
-app.post('/api/proposals/create-revision', authMiddleware, (req, res) => {
+// Create new revision (e.g. REV1 -> REV2 -> REV3) with Anti-IDOR / BOLA check on disk
+app.post('/api/proposals/create-revision', authMiddleware, requireCommercialAccess, security.validateProposalSchema, (req, res) => {
   const proposal = req.body;
   if (!proposal || !proposal.general) {
     return res.status(400).json({ error: 'Dados da proposta incompletos.' });
@@ -1176,40 +1292,60 @@ app.post('/api/proposals/create-revision', authMiddleware, (req, res) => {
   const existingAuthor = getProposalAuthor(proposal);
   const isAuthor = existingAuthor.username.toLowerCase() === req.user.username.toLowerCase();
 
-  // If viewing someone else's proposal and not admin, cannot create revision
   if (!req.user.canEditAll && !isAuthor) {
     return res.status(403).json({
       error: `Apenas o autor (${existingAuthor.name}) ou o Administrador pode gerar novas revisões desta proposta.`
     });
   }
 
-  const baseNumber = proposal.general.proposalNumber || 'PROP-2026-001';
-  const currentRev = parseInt(proposal.general.revision || 1);
+  const baseNumber = String(proposal.general.proposalNumber || 'PROP-2026-001').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const currentRev = Math.max(1, parseInt(proposal.general.revision || 1, 10));
   const nextRev = currentRev + 1;
 
-  // 1. Archive previous revision snapshot if not already saved
-  const prevId = `${baseNumber.replace(/[^a-zA-Z0-9_-]/g, '_')}_REV${currentRev}`;
-  const prevFile = path.join(PROPOSALS_DIR, `${prevId}.json`);
-  if (!fs.existsSync(prevFile)) {
+  const prevId = `${baseNumber}_REV${currentRev}`;
+  const prevFile = security.resolveSafePath(PROPOSALS_DIR, `${prevId}.json`);
+
+  // Anti-IDOR / BOLA: Se a revisão anterior ou próxima já existir no disco, valida o proprietário real no disco
+  if (fs.existsSync(prevFile)) {
+    const diskPrev = readJson(prevFile);
+    if (diskPrev) {
+      const diskAuthor = getProposalAuthor(diskPrev);
+      if (!req.user.canEditAll && diskAuthor.username.toLowerCase() !== req.user.username.toLowerCase()) {
+        return res.status(403).json({
+          error: `Bloqueio Anti-IDOR: A proposta ${baseNumber} pertence a "${diskAuthor.name}".`
+        });
+      }
+    }
+  } else {
     const prevProposal = JSON.parse(JSON.stringify(proposal));
     prevProposal.id = prevId;
     prevProposal.general = prevProposal.general || {};
     prevProposal.general.revision = currentRev;
-    prevProposal.author = prevProposal.author || { username: req.user.username, name: req.user.name };
+    prevProposal.author = { username: req.user.username, name: req.user.name };
     prevProposal.name = `${prevProposal.general.modelName || 'Pedido'} - ${prevProposal.general.clientName || 'Cliente'}`;
     writeJson(prevFile, prevProposal);
   }
 
-  // 2. Setup new revision
+  const newId = `${baseNumber}_REV${nextRev}`;
+  const newFile = security.resolveSafePath(PROPOSALS_DIR, `${newId}.json`);
+  if (fs.existsSync(newFile)) {
+    const diskNext = readJson(newFile);
+    if (diskNext) {
+      const diskAuthor = getProposalAuthor(diskNext);
+      if (!req.user.canEditAll && diskAuthor.username.toLowerCase() !== req.user.username.toLowerCase()) {
+        return res.status(403).json({
+          error: `Bloqueio Anti-IDOR: A revisão ${newId} pertence a "${diskAuthor.name}".`
+        });
+      }
+    }
+  }
+
   proposal.general.revision = nextRev;
-  const newId = `${baseNumber.replace(/[^a-zA-Z0-9_-]/g, '_')}_REV${nextRev}`;
   proposal.id = newId;
   proposal.author = { username: req.user.username, name: req.user.name };
   proposal.name = `${proposal.general.modelName || 'Pedido'} - ${proposal.general.clientName || 'Cliente'}`;
   proposal.updatedAt = new Date().toISOString();
 
-  // 3. Save new revision file & set active
-  const newFile = path.join(PROPOSALS_DIR, `${newId}.json`);
   writeJson(newFile, proposal);
   writeJson(getUserActiveProposalPath(req.user.username), proposal);
   if (proposal.general?.modelName) {
@@ -1226,11 +1362,11 @@ app.post('/api/proposals/create-revision', authMiddleware, (req, res) => {
 });
 
 // List saved proposals (filtered by permission)
-app.get('/api/proposals', authMiddleware, (req, res) => {
+app.get('/api/proposals', authMiddleware, requireCommercialAccess, (req, res) => {
   try {
     const files = fs.readdirSync(PROPOSALS_DIR).filter(f => f.endsWith('.json'));
     let list = files.map(file => {
-      const fullPath = path.join(PROPOSALS_DIR, file);
+      const fullPath = security.resolveSafePath(PROPOSALS_DIR, file);
       const data = readJson(fullPath, {});
       const author = getProposalAuthor(data);
       const isAuthor = author.username.toLowerCase() === req.user.username.toLowerCase();
@@ -1255,8 +1391,6 @@ app.get('/api/proposals', authMiddleware, (req, res) => {
       };
     });
 
-    // Permission filter:
-    // If NOT canViewAll, only return proposals where author.username matches current user
     if (!req.user.canViewAll) {
       list = list.filter(item => item.author.username.toLowerCase() === req.user.username.toLowerCase());
     }
@@ -1269,7 +1403,7 @@ app.get('/api/proposals', authMiddleware, (req, res) => {
 });
 
 // Save proposal with custom name
-app.post('/api/proposals/save-as', authMiddleware, (req, res) => {
+app.post('/api/proposals/save-as', authMiddleware, requireCommercialAccess, security.validateProposalSchema, (req, res) => {
   const { name, proposal } = req.body;
   if (!proposal) {
     return res.status(400).json({ error: 'Proposta não fornecida.' });
@@ -1280,17 +1414,18 @@ app.post('/api/proposals/save-as', authMiddleware, (req, res) => {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9_-]/g, '_')
-    .replace(/_+/g, '_') + '_' + Date.now().toString().slice(-4);
+    .replace(/_+/g, '_')
+    .slice(0, 90) + '_' + Date.now().toString().slice(-4);
 
   proposal.id = cleanId;
-  // Always associate the saving user as author of this new entry
+  proposal.author = { username: req.user.username, name: req.user.name };
   const defaultProposalName = (proposal.general?.modelName && proposal.general?.clientName)
     ? `${proposal.general.modelName} - ${proposal.general.clientName}`
     : (proposal.general?.modelName || 'Proposta Comercial');
   proposal.name = name || defaultProposalName;
   proposal.updatedAt = new Date().toISOString();
 
-  const filePath = path.join(PROPOSALS_DIR, `${cleanId}.json`);
+  const filePath = security.resolveSafePath(PROPOSALS_DIR, `${cleanId}.json`);
   writeJson(filePath, proposal);
   writeJson(getUserActiveProposalPath(req.user.username), proposal);
   if (proposal.general?.modelName) {
@@ -1300,10 +1435,16 @@ app.post('/api/proposals/save-as', authMiddleware, (req, res) => {
   res.json({ message: 'Proposta salva na lista com sucesso!', id: cleanId, proposal, author: proposal.author });
 });
 
-// Load a saved proposal by ID
-app.get('/api/proposals/load/:id', authMiddleware, (req, res) => {
+// Load a saved proposal by ID (Anti-IDOR & Path Traversal hardened)
+app.get('/api/proposals/load/:id', authMiddleware, requireCommercialAccess, security.validateSafeParam('id'), (req, res) => {
   const id = req.params.id;
-  const filePath = path.join(PROPOSALS_DIR, `${id}.json`);
+  let filePath;
+  try {
+    filePath = security.resolveSafePath(PROPOSALS_DIR, `${id}.json`);
+  } catch (e) {
+    return res.status(400).json({ error: 'ID de proposta inválido.' });
+  }
+
   if (!fs.existsSync(filePath)) {
     return res.status(404).json({ error: 'Proposta não encontrada.' });
   }
@@ -1312,7 +1453,7 @@ app.get('/api/proposals/load/:id', authMiddleware, (req, res) => {
   const author = getProposalAuthor(data);
   const isAuthor = author.username.toLowerCase() === req.user.username.toLowerCase();
 
-  // If user cannot view all and is not author, forbidden
+  // Anti-IDOR / BOLA: Usuário sem permissão global não pode carregar proposta de outro autor
   if (!req.user.canViewAll && !isAuthor) {
     return res.status(403).json({ error: 'Você não tem permissão para visualizar esta proposta.' });
   }
@@ -1336,13 +1477,19 @@ app.get('/api/proposals/load/:id', authMiddleware, (req, res) => {
 });
 
 // Delete saved proposal (RESTRICTED ONLY TO ADMIN)
-app.delete('/api/proposals/:id', authMiddleware, (req, res) => {
+app.delete('/api/proposals/:id', sensitiveActionLimiter, authMiddleware, security.validateSafeParam('id'), (req, res) => {
   if (req.user.role !== 'admin' && !req.user.canManageUsers) {
     return res.status(403).json({ error: 'Apenas o Administrador pode excluir propostas do sistema.' });
   }
 
   const id = req.params.id;
-  const filePath = path.join(PROPOSALS_DIR, `${id}.json`);
+  let filePath;
+  try {
+    filePath = security.resolveSafePath(PROPOSALS_DIR, `${id}.json`);
+  } catch (e) {
+    return res.status(400).json({ error: 'ID de proposta inválido.' });
+  }
+
   if (!fs.existsSync(filePath)) {
     return res.status(404).json({ error: 'Arquivo não encontrado.' });
   }
@@ -1355,28 +1502,22 @@ app.delete('/api/proposals/:id', authMiddleware, (req, res) => {
 // ================= MODELS MANAGEMENT & PHOTOS =================
 
 // Get boat models list
-app.get('/api/models', (req, res) => {
+app.get('/api/models', authMiddleware, (req, res) => {
   const models = normalizeModels(readJson(MODELS_PATH, []));
   res.json(models);
 });
 
 // Get template for a model
-app.get('/api/models/:name/template', (req, res) => {
+app.get('/api/models/:name/template', authMiddleware, security.validateSafeParam('name'), (req, res) => {
   const modelName = req.params.name;
-  if (!modelName) {
-    return res.status(400).json({ error: 'Nome do modelo é obrigatório.' });
-  }
   const forceFromDisk = req.query.forceDisk === 'true';
   const template = getModelTemplate(modelName, forceFromDisk);
   res.json({ template });
 });
 
 // Get model draft or fallback template for current active user
-app.get('/api/models/:name/draft-or-template', authMiddleware, (req, res) => {
+app.get('/api/models/:name/draft-or-template', authMiddleware, requireCommercialAccess, security.validateSafeParam('name'), (req, res) => {
   const modelName = req.params.name;
-  if (!modelName) {
-    return res.status(400).json({ error: 'Nome do modelo é obrigatório.' });
-  }
   const cleanName = modelName.trim().toUpperCase();
   const draftPath = getUserActiveProposalPath(req.user.username, cleanName);
   const userContact = getUserContact(req.user);
@@ -1402,7 +1543,6 @@ app.get('/api/models/:name/draft-or-template', authMiddleware, (req, res) => {
     }
   }
 
-  // Fallback to base template
   const tmpl = getModelTemplate(cleanName);
   if (!tmpl) {
     return res.status(404).json({ error: `Modelo "${cleanName}" não encontrado.` });
@@ -1421,18 +1561,14 @@ app.get('/api/models/:name/draft-or-template', authMiddleware, (req, res) => {
 });
 
 // Restore model to last saved state from disk (resets temporary draft)
-app.post('/api/models/:name/restore-template', authMiddleware, (req, res) => {
+app.post('/api/models/:name/restore-template', authMiddleware, requireCommercialAccess, security.validateSafeParam('name'), (req, res) => {
   const modelName = req.params.name;
-  if (!modelName) {
-    return res.status(400).json({ error: 'Nome do modelo é obrigatório.' });
-  }
   const cleanName = modelName.trim().toUpperCase();
   const template = getModelTemplate(cleanName, true);
   if (!template) {
     return res.status(404).json({ error: 'Nenhum modelo salvo encontrado.' });
   }
 
-  // Remove temporary working draft file for this model if it exists
   const draftPath = getUserActiveProposalPath(req.user.username, cleanName);
   if (fs.existsSync(draftPath)) {
     try { fs.unlinkSync(draftPath); } catch (e) {}
@@ -1463,16 +1599,16 @@ app.post('/api/models/:name/restore-template', authMiddleware, (req, res) => {
 });
 
 // Add new boat model
-app.post('/api/models', authMiddleware, (req, res) => {
-  const { name, image } = req.body;
-  if (!name || !name.trim()) {
-    return res.status(400).json({ error: 'Nome do modelo é obrigatório.' });
+app.post('/api/models', authMiddleware, requireCommercialAccess, (req, res) => {
+  const { name, image } = req.body || {};
+  if (!name || typeof name !== 'string' || !name.trim() || name.trim().length > 64) {
+    return res.status(400).json({ error: 'Nome do modelo é obrigatório (máx. 64 caracteres).' });
   }
-  const cleanName = name.trim().toUpperCase();
+  const cleanName = security.sanitizeString(name, 64).toUpperCase();
   const models = normalizeModels(readJson(MODELS_PATH, []));
   let existing = models.find(m => m.name.toUpperCase() === cleanName);
   if (!existing) {
-    existing = { name: cleanName, image: (image || '').trim() };
+    existing = { name: cleanName, image: security.sanitizeString(image || '', 512) };
     models.push(existing);
     writeJson(MODELS_PATH, models);
   }
@@ -1481,7 +1617,7 @@ app.post('/api/models', authMiddleware, (req, res) => {
 });
 
 // Upload model photo file
-app.post('/api/models/:name/photo', authMiddleware, uploadModelPhoto.single('photo'), (req, res) => {
+app.post('/api/models/:name/photo', authMiddleware, requireCommercialAccess, security.validateSafeParam('name'), uploadModelPhoto.single('photo'), (req, res) => {
   const modelName = req.params.name;
   let models = normalizeModels(readJson(MODELS_PATH, []));
   let model = models.find(m => m.name.toUpperCase() === modelName.toUpperCase());
@@ -1495,7 +1631,6 @@ app.post('/api/models/:name/photo', authMiddleware, uploadModelPhoto.single('pho
   model.image = `/assets/uploads/models/${req.file.filename}`;
   writeJson(MODELS_PATH, models);
 
-  // If user active proposal uses this model, update it too
   const userActivePath = getUserActiveProposalPath(req.user.username);
   const activeProp = readJson(userActivePath);
   if (activeProp && activeProp.general && activeProp.general.modelName?.toUpperCase() === modelName.toUpperCase()) {
@@ -1503,7 +1638,6 @@ app.post('/api/models/:name/photo', authMiddleware, uploadModelPhoto.single('pho
     writeJson(userActivePath, activeProp);
   }
 
-  // Also update model template photo
   const tmpl = getModelTemplate(modelName);
   if (tmpl) {
     tmpl.modelImage = model.image;
@@ -1514,15 +1648,15 @@ app.post('/api/models/:name/photo', authMiddleware, uploadModelPhoto.single('pho
 });
 
 // Update model photo via URL or remove photo
-app.put('/api/models/:name/photo-url', authMiddleware, (req, res) => {
+app.put('/api/models/:name/photo-url', authMiddleware, requireCommercialAccess, security.validateSafeParam('name'), (req, res) => {
   const modelName = req.params.name;
-  const { imageUrl } = req.body;
+  const { imageUrl } = req.body || {};
   let models = normalizeModels(readJson(MODELS_PATH, []));
   let model = models.find(m => m.name.toUpperCase() === modelName.toUpperCase());
   if (!model) {
     return res.status(404).json({ error: 'Modelo não encontrado.' });
   }
-  model.image = (imageUrl || '').trim();
+  model.image = security.sanitizeString(imageUrl || '', 512);
   writeJson(MODELS_PATH, models);
 
   const userActivePath = getUserActiveProposalPath(req.user.username);
@@ -1541,8 +1675,11 @@ app.put('/api/models/:name/photo-url', authMiddleware, (req, res) => {
   res.json({ message: `Foto do modelo "${modelName}" atualizada com sucesso!`, model, models });
 });
 
-// Delete a boat model
-app.delete('/api/models/:name', authMiddleware, (req, res) => {
+// Delete a boat model (Restricted to Admin / Managers)
+app.delete('/api/models/:name', sensitiveActionLimiter, authMiddleware, security.validateSafeParam('name'), (req, res) => {
+  if (req.user.role !== 'admin' && !req.user.canManageUsers && !req.user.canEditAll) {
+    return res.status(403).json({ error: 'Apenas o Administrador pode remover modelos do catálogo.' });
+  }
   const modelName = req.params.name.toUpperCase();
   let models = normalizeModels(readJson(MODELS_PATH, []));
   models = models.filter(m => m.name.toUpperCase() !== modelName);
@@ -1567,7 +1704,7 @@ app.get('/api/admin/db/status', authMiddleware, async (req, res) => {
 });
 
 // Test MySQL connection
-app.post('/api/admin/db/test', authMiddleware, async (req, res) => {
+app.post('/api/admin/db/test', sensitiveActionLimiter, authMiddleware, security.validateDbConfigSchema, async (req, res) => {
   if (!req.user.canManageUsers && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Acesso restrito ao Administrador.' });
   }
@@ -1581,7 +1718,7 @@ app.post('/api/admin/db/test', authMiddleware, async (req, res) => {
 });
 
 // Update database configuration & reconnect
-app.post('/api/admin/db/config', authMiddleware, async (req, res) => {
+app.post('/api/admin/db/config', sensitiveActionLimiter, authMiddleware, security.validateDbConfigSchema, async (req, res) => {
   if (!req.user.canManageUsers && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Acesso restrito ao Administrador.' });
   }
@@ -1596,7 +1733,7 @@ app.post('/api/admin/db/config', authMiddleware, async (req, res) => {
 });
 
 // Trigger full backup to MySQL now
-app.post('/api/admin/db/backup-now', authMiddleware, async (req, res) => {
+app.post('/api/admin/db/backup-now', sensitiveActionLimiter, authMiddleware, async (req, res) => {
   if (!req.user.canManageUsers && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Acesso restrito ao Administrador.' });
   }
@@ -1609,7 +1746,7 @@ app.post('/api/admin/db/backup-now', authMiddleware, async (req, res) => {
 });
 
 // Trigger emergency restore from MySQL now
-app.post('/api/admin/db/restore-now', authMiddleware, async (req, res) => {
+app.post('/api/admin/db/restore-now', sensitiveActionLimiter, authMiddleware, async (req, res) => {
   if (!req.user.canManageUsers && req.user.role !== 'admin') {
     return res.status(403).json({ error: 'Acesso restrito ao Administrador.' });
   }
@@ -1629,7 +1766,7 @@ function canAccessRh(user) {
 }
 
 // Get attendance reports (Paired, Direct 1st-to-Last, Raw Logs & Monthly Summary)
-app.get('/api/rh/reports', authMiddleware, async (req, res) => {
+app.get('/api/rh/reports', authMiddleware, security.validateRhReportQuerySchema, async (req, res) => {
   if (!canAccessRh(req.user)) {
     return res.status(403).json({ error: 'Acesso restrito ao setor de Recursos Humanos e Diretoria.' });
   }
@@ -1641,13 +1778,13 @@ app.get('/api/rh/reports', authMiddleware, async (req, res) => {
   }
 });
 
-// Get iD Control database configuration
+// Get iD Control database configuration (passwords masked)
 app.get('/api/rh/config', authMiddleware, (req, res) => {
   if (!canAccessRh(req.user)) {
     return res.status(403).json({ error: 'Acesso restrito.' });
   }
   try {
-    const cfg = rhDb.loadRhConfig();
+    const cfg = rhDb.maskRhConfigForClient(rhDb.loadRhConfig());
     res.json(cfg);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1655,7 +1792,7 @@ app.get('/api/rh/config', authMiddleware, (req, res) => {
 });
 
 // Save iD Control database configuration & table mapping
-app.post('/api/rh/config', authMiddleware, async (req, res) => {
+app.post('/api/rh/config', sensitiveActionLimiter, authMiddleware, security.validateDbConfigSchema, async (req, res) => {
   if (!canAccessRh(req.user)) {
     return res.status(403).json({ error: 'Acesso restrito.' });
   }
@@ -1667,7 +1804,7 @@ app.post('/api/rh/config', authMiddleware, async (req, res) => {
     }
     res.json({
       message: 'Configuração do banco iD Control salva com sucesso!',
-      config: saved,
+      config: rhDb.maskRhConfigForClient(saved),
       connectionCheck
     });
   } catch (err) {
@@ -1675,8 +1812,8 @@ app.post('/api/rh/config', authMiddleware, async (req, res) => {
   }
 });
 
-// Test connection to iD Control database and auto-discover tables/columns
-app.post('/api/rh/test-connection', authMiddleware, async (req, res) => {
+// Test connection to iD Control database (Login 1 - Read Only) and auto-discover tables/columns
+app.post('/api/rh/test-connection', sensitiveActionLimiter, authMiddleware, security.validateDbConfigSchema, async (req, res) => {
   if (!canAccessRh(req.user)) {
     return res.status(403).json({ error: 'Acesso restrito.' });
   }
@@ -1688,16 +1825,27 @@ app.post('/api/rh/test-connection', authMiddleware, async (req, res) => {
   }
 });
 
-// Get detailed punches (including ignored/edited) and daily adjustment for a specific employee and date
-app.get('/api/rh/day-details', authMiddleware, async (req, res) => {
+// Test connection to Commercial database for RH write operations (Login 2 - Read & Write)
+app.post('/api/rh/test-commercial-db', sensitiveActionLimiter, authMiddleware, security.validateDbConfigSchema, async (req, res) => {
   if (!canAccessRh(req.user)) {
     return res.status(403).json({ error: 'Acesso restrito.' });
   }
   try {
-    const { employeeName, isoDate } = req.query || {};
-    if (!employeeName || !isoDate) {
-      return res.status(400).json({ error: 'Funcionário e data são obrigatórios.' });
-    }
+    const result = await rhDb.testCommercialDbConnection(req.body || {});
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ connected: false, message: err.message });
+  }
+});
+
+// Get detailed punches (including ignored/edited) and daily adjustment for a specific employee and date
+app.get('/api/rh/day-details', authMiddleware, security.validateRhDayDetailsQuerySchema, async (req, res) => {
+  if (!canAccessRh(req.user)) {
+    return res.status(403).json({ error: 'Acesso restrito.' });
+  }
+  try {
+    const employeeName = req.query.employeeName;
+    const isoDate = req.query.isoDate;
     const details = await rhDb.getDayDetails(employeeName, isoDate);
     res.json(details);
   } catch (err) {
@@ -1706,7 +1854,7 @@ app.get('/api/rh/day-details', authMiddleware, async (req, res) => {
 });
 
 // Add manual punch(es), edit existing turnstile punch, or ignore punch
-app.post('/api/rh/lancamentos', authMiddleware, async (req, res) => {
+app.post('/api/rh/lancamentos', authMiddleware, security.validateRhLancamentoSchema, async (req, res) => {
   if (!canAccessRh(req.user)) {
     return res.status(403).json({ error: 'Acesso restrito.' });
   }
@@ -1719,7 +1867,7 @@ app.post('/api/rh/lancamentos', authMiddleware, async (req, res) => {
 });
 
 // Delete manual punch or restore edited/ignored turnstile punch
-app.delete('/api/rh/lancamentos/:id', authMiddleware, async (req, res) => {
+app.delete('/api/rh/lancamentos/:id', authMiddleware, security.validateSafeParam('id'), async (req, res) => {
   if (!canAccessRh(req.user)) {
     return res.status(403).json({ error: 'Acesso restrito.' });
   }
@@ -1732,7 +1880,7 @@ app.delete('/api/rh/lancamentos/:id', authMiddleware, async (req, res) => {
 });
 
 // Save daily hours adjustment (Viagem, Serviço Externo, Horas Fixas, Abono)
-app.post('/api/rh/ajustes-diarios', authMiddleware, async (req, res) => {
+app.post('/api/rh/ajustes-diarios', authMiddleware, security.validateRhDailyAdjustmentSchema, async (req, res) => {
   if (!canAccessRh(req.user)) {
     return res.status(403).json({ error: 'Acesso restrito.' });
   }
@@ -1745,7 +1893,7 @@ app.post('/api/rh/ajustes-diarios', authMiddleware, async (req, res) => {
 });
 
 // Delete daily hours adjustment
-app.delete('/api/rh/ajustes-diarios/:id', authMiddleware, async (req, res) => {
+app.delete('/api/rh/ajustes-diarios/:id', authMiddleware, security.validateSafeParam('id'), async (req, res) => {
   if (!canAccessRh(req.user)) {
     return res.status(403).json({ error: 'Acesso restrito.' });
   }
@@ -1760,7 +1908,7 @@ app.delete('/api/rh/ajustes-diarios/:id', authMiddleware, async (req, res) => {
 // ================= UPLOADS =================
 
 // Upload image (logo)
-app.post('/api/upload-logo', authMiddleware, upload.single('logo'), (req, res) => {
+app.post('/api/upload-logo', authMiddleware, requireCommercialAccess, upload.single('logo'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
   }

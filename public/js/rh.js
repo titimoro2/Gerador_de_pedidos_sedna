@@ -11,7 +11,16 @@ const rhState = {
   isForcedPasswordChange: false,
   launchMode: 'hours', // 'hours' | 'punches'
   dayEditorContext: null, // { employeeId, employeeName, registration, department, isoDate }
-  dayEditorData: null
+  dayEditorData: null,
+  pagination: {
+    pageSize: 10, // Padrão: 10 registros por página (alterável no rodapé)
+    pages: {
+      monthly: 1,
+      paired: 1,
+      direct: 1,
+      raw: 1
+    }
+  }
 };
 
 function getAuthToken() {
@@ -83,6 +92,163 @@ function getReasonIcon(reason) {
   if (r.includes('atestado') || r.includes('abono')) return '🏥';
   if (r.includes('esquecimento')) return '🕒';
   return '✏️';
+}
+
+// ============================================================================
+// PAGINAÇÃO DOS RELATÓRIOS (PADRÃO 10 POR PÁGINA + SELETOR NO RODAPÉ)
+// ============================================================================
+function getPaginatedSlice(reportKey, allRows) {
+  const totalItems = Array.isArray(allRows) ? allRows.length : 0;
+  const pageSize = Number(rhState.pagination.pageSize) || 0; // 0 = Mostrar Todos
+
+  if (pageSize <= 0 || totalItems === 0) {
+    rhState.pagination.pages[reportKey] = 1;
+    renderPaginationBar(reportKey, totalItems, 1, 1, 1, totalItems);
+    return allRows || [];
+  }
+
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  let currentPage = rhState.pagination.pages[reportKey] || 1;
+  if (currentPage > totalPages) currentPage = totalPages;
+  if (currentPage < 1) currentPage = 1;
+  rhState.pagination.pages[reportKey] = currentPage;
+
+  const startIdx = (currentPage - 1) * pageSize;
+  const endIdx = Math.min(startIdx + pageSize, totalItems);
+
+  renderPaginationBar(reportKey, totalItems, currentPage, totalPages, startIdx + 1, endIdx);
+  return allRows.slice(startIdx, endIdx);
+}
+
+function renderPaginationBar(reportKey, totalItems, currentPage, totalPages, startItem, endItem) {
+  const container = document.getElementById(`pagination-${reportKey}`);
+  if (!container) return;
+
+  const pageSize = Number(rhState.pagination.pageSize) || 0;
+  const infoText = totalItems === 0
+    ? 'Nenhum registro encontrado'
+    : `Exibindo <strong>${startItem}</strong> a <strong>${endItem}</strong> de <strong>${totalItems}</strong> registro(s)`;
+
+  // Calcula janela de páginas visíveis (até 5 botões numéricos)
+  const pageButtons = [];
+  if (totalPages > 1) {
+    let startPage = Math.max(1, currentPage - 2);
+    let endPage = Math.min(totalPages, startPage + 4);
+    if (endPage - startPage < 4) {
+      startPage = Math.max(1, endPage - 4);
+    }
+
+    for (let p = startPage; p <= endPage; p++) {
+      pageButtons.push(`
+        <button type="button" class="rh-page-btn ${p === currentPage ? 'active' : ''}" onclick="goToRhPage('${reportKey}', ${p})">
+          ${p}
+        </button>
+      `);
+    }
+  } else {
+    pageButtons.push(`<button type="button" class="rh-page-btn active" disabled>1</button>`);
+  }
+
+  container.innerHTML = `
+    <div style="display: flex; align-items: center; gap: 14px; flex-wrap: wrap;">
+      <span>${infoText}</span>
+      <label style="display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: #0f172a;">
+        <span>Mostrar por página:</span>
+        <select class="rh-page-size-select" onchange="changeRhPageSize(this.value)">
+          <option value="10" ${pageSize === 10 ? 'selected' : ''}>10 por página</option>
+          <option value="20" ${pageSize === 20 ? 'selected' : ''}>20 por página</option>
+          <option value="50" ${pageSize === 50 ? 'selected' : ''}>50 por página</option>
+          <option value="100" ${pageSize === 100 ? 'selected' : ''}>100 por página</option>
+          <option value="0" ${pageSize === 0 ? 'selected' : ''}>Mostrar Todos (${totalItems})</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="rh-pagination-controls">
+      <button type="button" class="rh-page-btn" onclick="goToRhPage('${reportKey}', 1)" ${currentPage <= 1 ? 'disabled' : ''} title="Primeira Página">
+        &laquo;
+      </button>
+      <button type="button" class="rh-page-btn" onclick="goToRhPage('${reportKey}', ${currentPage - 1})" ${currentPage <= 1 ? 'disabled' : ''}>
+        &lsaquo; Anterior
+      </button>
+      ${pageButtons.join('')}
+      <button type="button" class="rh-page-btn" onclick="goToRhPage('${reportKey}', ${currentPage + 1})" ${currentPage >= totalPages ? 'disabled' : ''}>
+        Próxima &rsaquo;
+      </button>
+      <button type="button" class="rh-page-btn" onclick="goToRhPage('${reportKey}', ${totalPages})" ${currentPage >= totalPages ? 'disabled' : ''} title="Última Página">
+        &raquo;
+      </button>
+    </div>
+  `;
+}
+
+window.changeRhPageSize = function(newSize) {
+  rhState.pagination.pageSize = parseInt(newSize, 10) || 0;
+  rhState.pagination.pages = { monthly: 1, paired: 1, direct: 1, raw: 1 };
+  rerenderAllTablesFromState();
+};
+
+window.goToRhPage = function(reportKey, targetPage) {
+  rhState.pagination.pages[reportKey] = parseInt(targetPage, 10) || 1;
+  rerenderAllTablesFromState();
+};
+
+function rerenderAllTablesFromState() {
+  if (!rhState.lastData) return;
+  renderMonthlyTable(rhState.lastData.monthlySummary || []);
+  renderPairedTable(rhState.lastData.dailyRecords || []);
+  renderDirectTable(rhState.lastData.dailyRecords || []);
+  renderRawTable(rhState.lastData.rawLogs || []);
+}
+
+// ============================================================================
+// ARRASTAR TABELA PARA OS LADOS (CLICK & DRAG HORIZONTAL EM QUALQUER LUGAR)
+// ============================================================================
+window.scrollActiveTable = function(deltaX) {
+  const wrap = document.getElementById(`wrap-${rhState.activeReport}`);
+  if (wrap) {
+    wrap.scrollBy({ left: deltaX, behavior: 'smooth' });
+  }
+};
+
+function initDragToScrollTables() {
+  const wrappers = document.querySelectorAll('.rh-table-responsive');
+  wrappers.forEach(wrap => {
+    let isDown = false;
+    let startX = 0;
+    let scrollLeft = 0;
+
+    wrap.addEventListener('mousedown', e => {
+      // Não inicia arraste se clicou em botão, input, select ou link
+      if (e.button !== 0) return;
+      if (e.target.closest('button, input, select, a, label')) return;
+
+      isDown = true;
+      wrap.classList.add('is-dragging');
+      startX = e.pageX - wrap.offsetLeft;
+      scrollLeft = wrap.scrollLeft;
+    });
+
+    wrap.addEventListener('mouseleave', () => {
+      if (!isDown) return;
+      isDown = false;
+      wrap.classList.remove('is-dragging');
+    });
+
+    wrap.addEventListener('mouseup', () => {
+      if (!isDown) return;
+      isDown = false;
+      wrap.classList.remove('is-dragging');
+    });
+
+    wrap.addEventListener('mousemove', e => {
+      if (!isDown) return;
+      e.preventDefault();
+      const x = e.pageX - wrap.offsetLeft;
+      const walk = (x - startX) * 1.35; // Velocidade confortável de arraste
+      wrap.scrollLeft = scrollLeft - walk;
+    });
+  });
 }
 
 // ============================================================================
@@ -193,7 +359,11 @@ async function initAuth() {
 // ============================================================================
 // CARREGAMENTO E RENDERIZAÇÃO DOS RELATÓRIOS DA CATRACA + BANCO COMERCIAL
 // ============================================================================
-async function loadRhReports() {
+async function loadRhReports(resetPages = false) {
+  if (resetPages) {
+    rhState.pagination.pages = { monthly: 1, paired: 1, direct: 1, raw: 1 };
+  }
+
   const startDate = document.getElementById('fltStartDate')?.value || '';
   const endDate = document.getElementById('fltEndDate')?.value || '';
   const startTime = document.getElementById('fltStartTime')?.value || '';
@@ -230,24 +400,24 @@ async function loadRhReports() {
 
     rhState.lastData = data;
 
-    // Atualiza barra de status mostrando as 2 conexões (Catraca iD Control + Banco Comercial sedna_pedidos)
+    // Atualiza barra de status mostrando os 2 Logins Independentes (Login 1 Leitura Catraca + Login 2 Gravação Comercial)
     if (statusDot && statusTitle && statusDesc) {
       statusDot.className = 'status-dot';
       const commDbStatus = data.commercialDbConnected
-        ? `🟢 Conexão 2 Ativa: Gravando edições/viagens no Banco Comercial (${data.commercialDbName || 'sedna_pedidos'})`
-        : `🟡 Conexão 2 Local: Gravando edições/viagens em armazenamento seguro do servidor`;
+        ? `💾 Login 2 Ativo (Gravação RH: ${data.commercialDbUser || 'root'} @ ${data.commercialDbName || 'sedna_pedidos'})`
+        : `🟡 Login 2 Local: Gravando lançamentos em armazenamento seguro do servidor`;
 
       if (data.dataSource === 'database') {
         statusDot.classList.add('connected');
-        statusTitle.textContent = `🟢 Conexão 1 Ativa: Catraca iD Control (${data.dbHost || 'localhost'} / ${data.dbName || 'iDSecure'})`;
-        statusDesc.textContent = `${data.kpis?.rawPassesCount || 0} batidas consideradas no período · ${commDbStatus}.`;
+        statusTitle.textContent = `🔒 Login 1 Ativo (Somente Leitura): ${data.dbUser || 'rh_leitura'} @ ${data.dbName || 'iDSecure'} (${data.dbHost || 'localhost'})`;
+        statusDesc.textContent = `${data.kpis?.rawPassesCount || 0} batidas lidas no período · ${commDbStatus}.`;
       } else if (data.dbWarning) {
         statusDot.classList.add('warning');
-        statusTitle.textContent = `⚠️ Conexão 1 (iD Control): ${data.dbWarning}`;
-        statusDesc.textContent = `${commDbStatus} · Clique em "Banco iD Control" no topo para revisar a leitura da catraca.`;
+        statusTitle.textContent = `⚠️ Login 1 (Catraca iD Control): ${data.dbWarning}`;
+        statusDesc.textContent = `${commDbStatus} · Clique em "Banco iD Control" no topo para revisar o Login 1 (Visualização) e o Login 2 (Gravação).`;
       } else {
-        statusTitle.textContent = 'Conexão 1: Simulação iD Control Ativa (Clique em "Banco iD Control" para selecionar o banco oficial)';
-        statusDesc.textContent = `${commDbStatus} · Você já pode editar horas, adicionar batidas e lançar viagens/serviços externos.`;
+        statusTitle.textContent = '🔒 Login 1: Simulação iD Control Ativa (Clique em "Banco iD Control" para configurar os 2 Logins de Banco)';
+        statusDesc.textContent = `${commDbStatus} · Login 1 tem bloqueio estrito de escrita (Somente SELECT).`;
       }
     }
 
@@ -258,10 +428,7 @@ async function loadRhReports() {
       department
     );
     renderKpis(data.kpis || {});
-    renderMonthlyTable(data.monthlySummary || []);
-    renderPairedTable(data.dailyRecords || []);
-    renderDirectTable(data.dailyRecords || []);
-    renderRawTable(data.rawLogs || []);
+    rerenderAllTablesFromState();
   } catch (err) {
     console.error('Erro ao buscar relatórios do RH:', err);
     if (statusTitle) statusTitle.textContent = `Erro ao consultar relatórios: ${err.message}`;
@@ -327,12 +494,14 @@ function formatBalanceBadge(minutes, formattedText) {
 // ============================================================================
 // TABELA 0: CONSOLIDADO MENSAL POR FUNCIONÁRIO
 // ============================================================================
-function renderMonthlyTable(rows) {
+function renderMonthlyTable(allRows) {
   const badge = document.getElementById('badgeCountMonthly');
-  if (badge) badge.textContent = rows.length;
+  if (badge) badge.textContent = allRows.length;
 
   const tbody = document.getElementById('tbodyMonthly');
   if (!tbody) return;
+
+  const rows = getPaginatedSlice('monthly', allRows);
 
   if (!rows.length) {
     tbody.innerHTML = `
@@ -371,13 +540,15 @@ function renderMonthlyTable(rows) {
         <td style="font-weight: 600;">${escapeHtml(r.avgDailyPairedFormatted)}</td>
         <td>${escapeHtml(r.totalExpectedFormatted)}</td>
         <td>${formatBalanceBadge(r.pairedBalanceMinutes, r.pairedBalanceFormatted)}</td>
-        <td class="no-print" style="text-align: right; white-space: nowrap; display: flex; gap: 6px; justify-content: flex-end;">
-          <button type="button" class="btn btn-sm btn-secondary" onclick="filterByEmployeeAndInspect('${escapeJsAttr(r.employeeId)}')" title="Ver todos os dias deste funcionário">
-            🔎 Ver Dias
-          </button>
-          <button type="button" class="btn btn-sm btn-primary" onclick="openRhLaunchModalForEmployee('${escapeJsAttr(r.employeeName)}', '${escapeJsAttr(r.registration)}', '${escapeJsAttr(r.department)}')" title="Lançar Viagem, Serviço Externo ou Ponto para este funcionário">
-            ➕ Lançar
-          </button>
+        <td class="no-print" style="text-align: right; white-space: nowrap;">
+          <div style="display: inline-flex; gap: 6px; justify-content: flex-end;">
+            <button type="button" class="btn btn-sm btn-secondary" onclick="filterByEmployeeAndInspect('${escapeJsAttr(r.employeeId)}')" title="Ver todos os dias deste funcionário">
+              🔎 Ver Dias
+            </button>
+            <button type="button" class="btn btn-sm btn-primary" onclick="openRhLaunchModalForEmployee('${escapeJsAttr(r.employeeName)}', '${escapeJsAttr(r.registration)}', '${escapeJsAttr(r.department)}')" title="Lançar Viagem, Serviço Externo ou Ponto para este funcionário">
+              ➕ Lançar
+            </button>
+          </div>
         </td>
       </tr>
     `;
@@ -390,7 +561,7 @@ window.filterByEmployeeAndInspect = function(userId) {
     selEmp.value = String(userId);
   }
   switchReportTab('paired');
-  loadRhReports();
+  loadRhReports(true);
 };
 
 window.openRhLaunchModalForEmployee = function(employeeName, registration, department) {
@@ -400,12 +571,14 @@ window.openRhLaunchModalForEmployee = function(employeeName, registration, depar
 // ============================================================================
 // TABELA 1: RELATÓRIO 1 - HORAS PAREADAS (ENTRADA & SAÍDA GIRO A GIRO)
 // ============================================================================
-function renderPairedTable(rows) {
+function renderPairedTable(allRows) {
   const badge = document.getElementById('badgeCountPaired');
-  if (badge) badge.textContent = rows.length;
+  if (badge) badge.textContent = allRows.length;
 
   const tbody = document.getElementById('tbodyPaired');
   if (!tbody) return;
+
+  const rows = getPaginatedSlice('paired', allRows);
 
   if (!rows.length) {
     tbody.innerHTML = `
@@ -422,7 +595,7 @@ function renderPairedTable(rows) {
     const pairsHtml = (r.pairs || []).map(p => {
       const manualTag = p.isManualOrEdited ? ' ✏️' : '';
       if (!p.complete) {
-        return `<span class="pass-pair-pill incomplete" title="Giro sem par de saída registrado">⚠️ ${escapeHtml(p.inTime)} &rarr; Sem Saída${manualTag}</span>`;
+        return `<span class="pass-pair-pill incomplete" title="${escapeHtml(p.outTimeFull || p.inTimeFull || 'Giro sem par registrado')}">⚠️ ${escapeHtml(p.inTime)} &rarr; ${escapeHtml(p.outTime || 'Sem Saída')}${manualTag}</span>`;
       }
       return `<span class="pass-pair-pill" title="Duração deste período: ${escapeHtml(p.durationFormatted)}">🟢 ${escapeHtml(p.inTime)} &rarr; 🔴 ${escapeHtml(p.outTime)} <strong>(${escapeHtml(p.durationFormatted)})${manualTag}</strong></span>`;
     }).join(' ');
@@ -496,12 +669,14 @@ function renderPairedTable(rows) {
 // ============================================================================
 // TABELA 2: RELATÓRIO 2 - JORNADA DIRETA (1ª BATIDA ATÉ ÚLTIMA BATIDA DO DIA)
 // ============================================================================
-function renderDirectTable(rows) {
+function renderDirectTable(allRows) {
   const badge = document.getElementById('badgeCountDirect');
-  if (badge) badge.textContent = rows.length;
+  if (badge) badge.textContent = allRows.length;
 
   const tbody = document.getElementById('tbodyDirect');
   if (!tbody) return;
+
+  const rows = getPaginatedSlice('direct', allRows);
 
   if (!rows.length) {
     tbody.innerHTML = `
@@ -551,12 +726,14 @@ function renderDirectTable(rows) {
 // ============================================================================
 // TABELA 3: RELATÓRIO 3 - DADOS BRUTOS DA CATRACA (GIRO A GIRO)
 // ============================================================================
-function renderRawTable(rows) {
+function renderRawTable(allRows) {
   const badge = document.getElementById('badgeCountRaw');
-  if (badge) badge.textContent = rows.length;
+  if (badge) badge.textContent = allRows.length;
 
   const tbody = document.getElementById('tbodyRaw');
   if (!tbody) return;
+
+  const rows = getPaginatedSlice('raw', allRows);
 
   if (!rows.length) {
     tbody.innerHTML = `
@@ -600,11 +777,13 @@ function renderRawTable(rows) {
           ${originBadge}
           ${r.notes ? `<div style="font-size: 0.72rem; color: #64748b;">Obs: ${escapeHtml(r.notes)}</div>` : ''}
         </td>
-        <td class="no-print" style="text-align: right; white-space: nowrap; display: flex; gap: 6px; justify-content: flex-end;">
-          <button type="button" class="btn btn-sm btn-primary" onclick="openDayEditorModal('${escapeJsAttr(r.employeeName)}', '${escapeJsAttr(r.isoDate)}', '${escapeJsAttr(r.registration)}', '${escapeJsAttr(r.department)}')">
-            ✏️ Editar Dia
-          </button>
-          ${deleteBtn}
+        <td class="no-print" style="text-align: right; white-space: nowrap;">
+          <div style="display: inline-flex; gap: 6px; justify-content: flex-end;">
+            <button type="button" class="btn btn-sm btn-primary" onclick="openDayEditorModal('${escapeJsAttr(r.employeeName)}', '${escapeJsAttr(r.isoDate)}', '${escapeJsAttr(r.registration)}', '${escapeJsAttr(r.department)}')">
+              ✏️ Editar Dia
+            </button>
+            ${deleteBtn}
+          </div>
         </td>
       </tr>
     `;
@@ -640,19 +819,19 @@ function setLaunchMode(mode) {
 
   if (btnHours && btnPunches) {
     if (rhState.launchMode === 'hours') {
-      btnHours.style.background = '#2563eb';
-      btnHours.style.color = '#fff';
-      btnHours.style.borderColor = '#2563eb';
-      btnPunches.style.background = '#fff';
-      btnPunches.style.color = '#334155';
-      btnPunches.style.borderColor = '#cbd5e1';
+      btnHours.style.background = '#ffffff';
+      btnHours.style.color = '#0284c7';
+      btnHours.style.borderBottom = '3px solid #0284c7';
+      btnPunches.style.background = '#f1f5f9';
+      btnPunches.style.color = '#475569';
+      btnPunches.style.borderBottom = 'none';
     } else {
-      btnPunches.style.background = '#2563eb';
-      btnPunches.style.color = '#fff';
-      btnPunches.style.borderColor = '#2563eb';
-      btnHours.style.background = '#fff';
-      btnHours.style.color = '#334155';
-      btnHours.style.borderColor = '#cbd5e1';
+      btnPunches.style.background = '#ffffff';
+      btnPunches.style.color = '#0284c7';
+      btnPunches.style.borderBottom = '3px solid #0284c7';
+      btnHours.style.background = '#f1f5f9';
+      btnHours.style.color = '#475569';
+      btnHours.style.borderBottom = 'none';
     }
   }
 
@@ -684,9 +863,9 @@ function updateLaunchPunchPresetUi() {
   const boxFull = document.getElementById('boxLaunchFullDayPunches');
   if (!selPreset || !boxSingle || !boxFull) return;
 
-  if (selPreset.value === 'full_day') {
+  if (String(selPreset.value).toUpperCase() === 'FULL_DAY') {
     boxSingle.style.display = 'none';
-    boxFull.style.display = 'block';
+    boxFull.style.display = 'grid';
   } else {
     boxSingle.style.display = 'grid';
     boxFull.style.display = 'none';
@@ -840,9 +1019,9 @@ async function saveRhLaunch() {
         throw new Error(data.error || 'Falha ao salvar ajuste de horas.');
       }
     } else {
-      const preset = document.getElementById('selLaunchPunchPreset')?.value || 'single';
+      const preset = String(document.getElementById('selLaunchPunchPreset')?.value || 'SINGLE').toUpperCase();
       let punches = [];
-      if (preset === 'full_day') {
+      if (preset === 'FULL_DAY') {
         const t1 = document.getElementById('inpFullPunch1')?.value || '';
         const t2 = document.getElementById('inpFullPunch2')?.value || '';
         const t3 = document.getElementById('inpFullPunch3')?.value || '';
@@ -890,7 +1069,7 @@ async function saveRhLaunch() {
   } finally {
     if (btnSave) {
       btnSave.disabled = false;
-      btnSave.textContent = '💾 Salvar Lançamento no Banco';
+      btnSave.textContent = '💾 Salvar Lançamento no Sistema';
     }
   }
 }
@@ -910,8 +1089,8 @@ function showDayEditorAlert(msg, isSuccess = false) {
 
 window.openDayEditorModal = async function(employeeName, isoDate, registration = '-', department = 'Geral') {
   rhState.dayEditorContext = {
-    employeeName,
-    isoDate,
+    employeeName: String(employeeName || '').trim(),
+    isoDate: String(isoDate || '').trim(),
     registration: registration || '-',
     department: department || 'Geral'
   };
@@ -928,7 +1107,7 @@ window.openDayEditorModal = async function(employeeName, isoDate, registration =
 
 async function refreshDayEditorModalData() {
   const ctx = rhState.dayEditorContext;
-  if (!ctx) return;
+  if (!ctx || !ctx.employeeName || !ctx.isoDate) return;
 
   const titleEl = document.getElementById('dayEditorTitle');
   const subEl = document.getElementById('dayEditorSubtitle');
@@ -938,12 +1117,13 @@ async function refreshDayEditorModalData() {
 
   const tbody = document.getElementById('tbodyDayEditorPunches');
   if (tbody) {
-    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center; padding: 16px; color: #64748b;">Carregando batidas do dia...</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center; padding: 16px; color: #64748b;">Carregando batidas do dia...</td></tr>`;
   }
 
   try {
     const params = new URLSearchParams({
       employeeName: ctx.employeeName,
+      isoDate: ctx.isoDate,
       date: ctx.isoDate
     });
     const res = await apiFetch(`/api/rh/day-details?${params.toString()}`);
@@ -967,8 +1147,8 @@ function renderDayEditorPunchesTable(passes) {
   if (!passes.length) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="4" style="text-align: center; padding: 18px; color: #64748b;">
-          Nenhuma batida registrada na catraca neste dia. Utilize o formulário abaixo para adicionar batidas ou lançar Viagem / Serviço Externo.
+        <td colspan="5" style="text-align: center; padding: 18px; color: #64748b;">
+          Nenhuma batida registrada na catraca neste dia. Utilize os campos abaixo para adicionar batidas ou lançar Viagem / Serviço Externo.
         </td>
       </tr>
     `;
@@ -981,11 +1161,11 @@ function renderDayEditorPunchesTable(passes) {
 
     let originBadge = '';
     if (p.origin === 'manual_rh') {
-      originBadge = `<span class="dir-badge" style="background: #e0f2fe; color: #0369a1;">➕ Manual RH (${escapeHtml(p.reasonType)})</span>`;
+      originBadge = `<span class="dir-badge" style="background: #e0f2fe; color: #0369a1;">➕ Manual RH</span>`;
     } else if (isIgnored) {
-      originBadge = `<span class="dir-badge out">🚫 Batida Ignorada pelo RH</span>`;
+      originBadge = `<span class="dir-badge out">🚫 Ignorada RH</span>`;
     } else if (p.isEdited) {
-      originBadge = `<span class="dir-badge" style="background: #fef3c7; color: #b45309;">✏️ Editada RH (Orig: ${escapeHtml(p.originalTimeHMS?.slice(0, 5) || '')})</span>`;
+      originBadge = `<span class="dir-badge" style="background: #fef3c7; color: #b45309;">✏️ Editada (Orig: ${escapeHtml(p.originalTimeHMS?.slice(0, 5) || '')})</span>`;
     } else {
       originBadge = `<span class="dir-badge in">🟢 Catraca iD Control</span>`;
     }
@@ -1002,23 +1182,27 @@ function renderDayEditorPunchesTable(passes) {
 
     return `
       <tr style="${rowStyle}">
-        <td>
-          <input type="time" id="dayPassTime_${idx}" class="form-control" value="${escapeHtml(p.timeHM)}" style="max-width: 120px; font-weight: 700;" ${isIgnored ? 'disabled' : ''}>
+        <td style="white-space: nowrap;">
+          ${originBadge}
         </td>
         <td>
-          <select id="dayPassDir_${idx}" class="form-control" style="max-width: 145px;" ${isIgnored ? 'disabled' : ''}>
+          <input type="time" id="dayPassTime_${idx}" class="form-control" value="${escapeHtml(p.timeHM)}" style="max-width: 125px; font-weight: 700;" ${isIgnored ? 'disabled' : ''}>
+        </td>
+        <td>
+          <select id="dayPassDir_${idx}" class="form-control" style="max-width: 140px;" ${isIgnored ? 'disabled' : ''}>
             <option value="ENTRADA" ${p.direction === 'ENTRADA' ? 'selected' : ''}>🟢 ENTRADA</option>
             <option value="SAIDA" ${p.direction === 'SAIDA' ? 'selected' : ''}>🔴 SAÍDA</option>
           </select>
         </td>
         <td>
-          ${originBadge}
-          ${p.notes ? `<div style="font-size: 0.72rem; color: #64748b; margin-top: 2px;">${escapeHtml(p.notes)}</div>` : ''}
+          <input type="text" id="dayPassNotes_${idx}" class="form-control" value="${escapeHtml(p.notes || (p.reasonType !== 'Giro Catraca iD Control' ? p.reasonType : ''))}" placeholder="Observação / Motivo..." style="font-size: 0.78rem;" ${isIgnored ? 'disabled' : ''}>
         </td>
-        <td style="text-align: right; white-space: nowrap; display: flex; gap: 6px; justify-content: flex-end;">
-          ${!isIgnored ? `<button type="button" class="btn btn-sm btn-primary" onclick="saveEditedDayPass(${idx})">💾 Salvar Horário</button>` : ''}
-          ${restoreBtn}
-          ${ignoreOrDeleteBtn}
+        <td style="text-align: right; white-space: nowrap;">
+          <div style="display: inline-flex; gap: 6px; justify-content: flex-end;">
+            ${!isIgnored ? `<button type="button" class="btn btn-sm btn-primary" onclick="saveEditedDayPass(${idx})">💾 Salvar</button>` : ''}
+            ${restoreBtn}
+            ${ignoreOrDeleteBtn}
+          </div>
         </td>
       </tr>
     `;
@@ -1033,6 +1217,7 @@ window.saveEditedDayPass = async function(idx) {
 
   const newTime = document.getElementById(`dayPassTime_${idx}`)?.value || p.timeHM;
   const newDir = document.getElementById(`dayPassDir_${idx}`)?.value || p.direction;
+  const newNotes = document.getElementById(`dayPassNotes_${idx}`)?.value.trim() || '';
 
   try {
     const res = await apiFetch('/api/rh/lancamentos', {
@@ -1047,7 +1232,7 @@ window.saveEditedDayPass = async function(idx) {
         logTime: newTime,
         direction: newDir,
         reasonType: p.reasonType && p.reasonType !== 'Giro Catraca iD Control' ? p.reasonType : 'Ajuste de Horário pelo RH',
-        notes: p.notes || ''
+        notes: newNotes
       }
     });
     const data = await res.json();
@@ -1267,6 +1452,11 @@ function switchReportTab(reportKey) {
 }
 
 function exportActiveTableToCsv() {
+  // Garante que a exportação CSV inclua TODOS os registros filtrados (e não apenas os 10 da página atual)
+  const prevPageSize = rhState.pagination.pageSize;
+  rhState.pagination.pageSize = 0;
+  rerenderAllTablesFromState();
+
   const tableMap = {
     monthly: { id: 'tableMonthly', filename: 'relatorio_rh_consolidado_mensal.csv' },
     paired: { id: 'tablePaired', filename: 'relatorio_rh_1_horas_pareadas_es.csv' },
@@ -1276,7 +1466,11 @@ function exportActiveTableToCsv() {
 
   const target = tableMap[rhState.activeReport] || tableMap.monthly;
   const tableEl = document.getElementById(target.id);
-  if (!tableEl) return;
+  if (!tableEl) {
+    rhState.pagination.pageSize = prevPageSize;
+    rerenderAllTablesFromState();
+    return;
+  }
 
   const csvRows = [];
   const trs = tableEl.querySelectorAll('tr');
@@ -1297,6 +1491,10 @@ function exportActiveTableToCsv() {
     }
   });
 
+  // Restaura paginação escolhida pelo usuário na tela
+  rhState.pagination.pageSize = prevPageSize;
+  rerenderAllTablesFromState();
+
   const csvContent = '\uFEFF' + csvRows.join('\r\n');
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -1310,7 +1508,7 @@ function exportActiveTableToCsv() {
 }
 
 // ============================================================================
-// MODAL DE CONFIGURAÇÃO DO BANCO DE DADOS iD CONTROL (SQL SERVER / MYSQL)
+// MODAL DE CONFIGURAÇÃO DOS 2 LOGINS DE BANCO DE DADOS DO RH
 // ============================================================================
 async function openIdControlConfigModal() {
   const modal = document.getElementById('modalIdControlConfig');
@@ -1318,56 +1516,76 @@ async function openIdControlConfigModal() {
 
   const alertBox = document.getElementById('cfgConnectionAlert');
   if (alertBox) alertBox.style.display = 'none';
+  const commAlertBox = document.getElementById('commDbConnectionAlert');
+  if (commAlertBox) commAlertBox.style.display = 'none';
 
   try {
     const res = await apiFetch('/api/rh/config');
     const cfg = await res.json();
 
-    document.getElementById('cfgEnabled').checked = !!cfg.enabled;
+    // Login 1: Banco da Catraca iD Control (Somente Leitura)
+    document.getElementById('cfgEnabled').checked = cfg.enabled !== false;
     document.getElementById('cfgDbType').value = cfg.dbType || 'mysql';
-    document.getElementById('cfgHost').value = cfg.host || 'localhost';
+    document.getElementById('cfgHost').value = cfg.host || '192.168.33.180';
     document.getElementById('cfgPort').value = cfg.port || 3306;
-    document.getElementById('cfgDatabase').value = cfg.database || 'idsecure';
-    document.getElementById('cfgUser').value = cfg.user || 'root';
+    document.getElementById('cfgDatabase').value = cfg.database || 'acesso';
+    document.getElementById('cfgUser').value = cfg.user || 'rh_leitura';
     document.getElementById('cfgPassword').value = cfg.password || '';
 
     const m = cfg.mapping || {};
-    document.getElementById('mapLogsTable').value = m.logsTable || 'access_logs';
+    document.getElementById('mapLogsTable').value = m.logsTable || 'logs';
     document.getElementById('mapColLogTime').value = m.colLogTime || 'time';
     document.getElementById('mapColLogUserId').value = m.colLogUserId || 'idUser';
-    document.getElementById('mapColLogDirection').value = m.colLogDirection || 'event';
+    document.getElementById('mapColLogDirection').value = m.colLogDirection || 'info';
     document.getElementById('mapUsersTable').value = m.usersTable || 'users';
     document.getElementById('mapColUserId').value = m.colUserId || 'id';
     document.getElementById('mapColUserName').value = m.colUserName || 'name';
     document.getElementById('mapColUserRegistration').value = m.colUserRegistration || 'registration';
+
+    // Login 2: Banco do Sistema Comercial (Gravação dos Lançamentos do RH)
+    const comm = cfg.commercialDb || {};
+    const elCommEnabled = document.getElementById('commDbEnabled');
+    if (elCommEnabled) elCommEnabled.checked = comm.enabled !== false;
+    const elCommHost = document.getElementById('commDbHost');
+    if (elCommHost) elCommHost.value = comm.host || 'localhost';
+    const elCommPort = document.getElementById('commDbPort');
+    if (elCommPort) elCommPort.value = comm.port || 3306;
+    const elCommDb = document.getElementById('commDbDatabase');
+    if (elCommDb) elCommDb.value = comm.database || 'sedna_pedidos';
+    const elCommUser = document.getElementById('commDbUser');
+    if (elCommUser) elCommUser.value = comm.user || 'root';
+    const elCommPass = document.getElementById('commDbPassword');
+    if (elCommPass) elCommPass.value = comm.password || '';
   } catch (err) {
-    console.error('Erro ao carregar configuração do banco RH:', err);
+    console.error('Erro ao carregar configuração dos bancos RH:', err);
   }
 
   modal.classList.add('active');
-
-  // Como está no mesmo servidor MySQL, já lista automaticamente os bancos de dados existentes ao abrir o modal
-  if (document.getElementById('cfgDbType').value === 'mysql') {
-    testAndDiscoverIdControlDb();
-  }
 }
 
 function collectIdControlConfigFromForm() {
   const dbType = document.getElementById('cfgDbType').value || 'mysql';
   return {
     enabled: document.getElementById('cfgEnabled').checked,
-    useSameMysqlServer: dbType === 'mysql',
     dbType,
-    host: document.getElementById('cfgHost').value.trim() || 'localhost',
+    host: document.getElementById('cfgHost').value.trim() || '192.168.33.180',
     port: Number(document.getElementById('cfgPort').value) || (dbType === 'mysql' ? 3306 : 1433),
-    database: document.getElementById('cfgDatabase').value.trim(),
-    user: document.getElementById('cfgUser').value.trim() || (dbType === 'mysql' ? 'root' : 'sa'),
+    database: document.getElementById('cfgDatabase').value.trim() || 'acesso',
+    user: document.getElementById('cfgUser').value.trim() || (dbType === 'mysql' ? 'rh_leitura' : 'sa'),
     password: document.getElementById('cfgPassword').value,
+    commercialDb: {
+      enabled: document.getElementById('commDbEnabled') ? document.getElementById('commDbEnabled').checked : true,
+      host: document.getElementById('commDbHost')?.value.trim() || 'localhost',
+      port: Number(document.getElementById('commDbPort')?.value) || 3306,
+      database: document.getElementById('commDbDatabase')?.value.trim() || 'sedna_pedidos',
+      user: document.getElementById('commDbUser')?.value.trim() || 'root',
+      password: document.getElementById('commDbPassword')?.value || ''
+    },
     mapping: {
-      logsTable: document.getElementById('mapLogsTable').value.trim() || 'access_logs',
+      logsTable: document.getElementById('mapLogsTable').value.trim() || 'logs',
       colLogTime: document.getElementById('mapColLogTime').value.trim() || 'time',
       colLogUserId: document.getElementById('mapColLogUserId').value.trim() || 'idUser',
-      colLogDirection: document.getElementById('mapColLogDirection').value.trim() || 'event',
+      colLogDirection: document.getElementById('mapColLogDirection').value.trim() || 'info',
       usersTable: document.getElementById('mapUsersTable').value.trim() || 'users',
       colUserId: document.getElementById('mapColUserId').value.trim() || 'id',
       colUserName: document.getElementById('mapColUserName').value.trim() || 'name',
@@ -1386,12 +1604,22 @@ function showConfigAlert(message, isSuccess) {
   alertBox.innerHTML = message;
 }
 
+function showCommDbAlert(message, isSuccess) {
+  const alertBox = document.getElementById('commDbConnectionAlert');
+  if (!alertBox) return;
+  alertBox.style.display = 'block';
+  alertBox.style.background = isSuccess ? '#dcfce7' : '#fee2e2';
+  alertBox.style.border = isSuccess ? '1px solid #86efac' : '1px solid #fca5a5';
+  alertBox.style.color = isSuccess ? '#166534' : '#991b1b';
+  alertBox.innerHTML = message;
+}
+
 async function testAndDiscoverIdControlDb() {
   const btn = document.getElementById('btnTestAndDiscover');
   const originalText = btn ? btn.innerHTML : '';
   if (btn) {
     btn.disabled = true;
-    btn.textContent = '⏳ Listando bancos do MySQL e inspecionando tabelas...';
+    btn.textContent = '⏳ Testando Login 1 (Leitura) e inspecionando tabelas...';
   }
 
   try {
@@ -1403,11 +1631,11 @@ async function testAndDiscoverIdControlDb() {
     const data = await res.json();
 
     if (!res.ok || !data.connected) {
-      showConfigAlert(`<strong>❌ Falha na conexão:</strong> ${escapeHtml(data.message || data.error || 'Não foi possível conectar ao MySQL.')}`, false);
+      showConfigAlert(`<strong>❌ Falha no Login 1 (Leitura):</strong> ${escapeHtml(data.message || data.error || 'Não foi possível conectar com este usuário de leitura.')}`, false);
       return;
     }
 
-    // Preenche lista de bancos de dados encontrados no mesmo servidor MySQL
+    // Preenche lista de bancos de dados visíveis para o usuário de leitura
     const dbSelect = document.getElementById('cfgDatabaseList');
     const dbInput = document.getElementById('cfgDatabase');
     if (data.selectedDatabase && dbInput) {
@@ -1418,7 +1646,7 @@ async function testAndDiscoverIdControlDb() {
       dbSelect.style.display = 'block';
       dbSelect.innerHTML = data.availableDatabases.map(dbName => {
         const isSelected = data.selectedDatabase && dbName.toLowerCase() === data.selectedDatabase.toLowerCase();
-        return `<option value="${escapeHtml(dbName)}" ${isSelected ? 'selected' : ''}>📂 Banco encontrado no MySQL: ${escapeHtml(dbName)}</option>`;
+        return `<option value="${escapeHtml(dbName)}" ${isSelected ? 'selected' : ''}>📂 Banco visível para este login: ${escapeHtml(dbName)}</option>`;
       }).join('');
     }
 
@@ -1441,14 +1669,46 @@ async function testAndDiscoverIdControlDb() {
 
     const tableNames = Array.isArray(data.tables) ? data.tables : Object.keys(data.tables || {});
     const dbsInfo = Array.isArray(data.availableDatabases) && data.availableDatabases.length > 0
-      ? `<br>Bancos encontrados neste MySQL: <strong>${escapeHtml(data.availableDatabases.join(', '))}</strong>.`
+      ? `<br>Bancos visíveis para este usuário: <strong>${escapeHtml(data.availableDatabases.join(', '))}</strong>.`
       : '';
     showConfigAlert(
-      `<strong>✅ Conexão estabelecida com sucesso!</strong> ${escapeHtml(data.message || '')}${dbsInfo}<br>Tabelas detectadas em <code>${escapeHtml(data.selectedDatabase || '')}</code>: <code>${escapeHtml(tableNames.slice(0, 10).join(', '))}${tableNames.length > 10 ? '...' : ''}</code>. Mapeamento preenchido automaticamente!`,
+      `<strong>✅ Login 1 (Somente Leitura) conectado com sucesso!</strong> ${escapeHtml(data.message || '')}${dbsInfo}<br>Tabelas detectadas em <code>${escapeHtml(data.selectedDatabase || '')}</code>: <code>${escapeHtml(tableNames.slice(0, 10).join(', '))}${tableNames.length > 10 ? '...' : ''}</code>. Mapeamento preenchido automaticamente!`,
       true
     );
   } catch (err) {
-    showConfigAlert(`<strong>❌ Erro ao testar conexão:</strong> ${escapeHtml(err.message)}`, false);
+    showConfigAlert(`<strong>❌ Erro ao testar Login 1:</strong> ${escapeHtml(err.message)}`, false);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalText;
+    }
+  }
+}
+
+async function testCommercialDb() {
+  const btn = document.getElementById('btnTestCommercialDb');
+  const originalText = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Testando Login 2 (Gravação RH)...';
+  }
+
+  try {
+    const fullCfg = collectIdControlConfigFromForm();
+    const res = await apiFetch('/api/rh/test-commercial-db', {
+      method: 'POST',
+      body: fullCfg.commercialDb
+    });
+    const data = await res.json();
+
+    if (!res.ok || !data.connected) {
+      showCommDbAlert(`<strong>❌ Falha no Login 2:</strong> ${escapeHtml(data.message || data.error || 'Não foi possível conectar ao banco comercial.')}`, false);
+      return;
+    }
+
+    showCommDbAlert(`<strong>✅ ${escapeHtml(data.message)}</strong>`, true);
+  } catch (err) {
+    showCommDbAlert(`<strong>❌ Erro ao testar Login 2:</strong> ${escapeHtml(err.message)}`, false);
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -1578,18 +1838,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   const ok = await initAuth();
   if (!ok) return;
 
+  // Ativa recurso de clicar e arrastar qualquer tabela para os lados
+  initDragToScrollTables();
+
   // Define "Este Mês" como período inicial padrão
   applyQuickPeriod('month');
 
   // Carrega relatórios iniciais
-  await loadRhReports();
+  await loadRhReports(true);
 
   // Botões de período rápido
   document.querySelectorAll('.btn-period-pill').forEach(btn => {
     btn.addEventListener('click', () => {
       const period = btn.getAttribute('data-period');
       applyQuickPeriod(period);
-      loadRhReports();
+      loadRhReports(true);
     });
   });
 
@@ -1601,15 +1864,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Filtros e botões de busca
-  document.getElementById('btnApplyFilters')?.addEventListener('click', () => loadRhReports());
-  document.getElementById('btnRefreshData')?.addEventListener('click', () => loadRhReports());
-  document.getElementById('fltEmployeeSelect')?.addEventListener('change', () => loadRhReports());
-  document.getElementById('fltDepartment')?.addEventListener('change', () => loadRhReports());
-  document.getElementById('fltWorkdayMinutes')?.addEventListener('change', () => loadRhReports());
-  document.getElementById('fltDirectionRaw')?.addEventListener('change', () => loadRhReports());
+  document.getElementById('btnApplyFilters')?.addEventListener('click', () => loadRhReports(true));
+  document.getElementById('btnRefreshData')?.addEventListener('click', () => loadRhReports(false));
+  document.getElementById('fltEmployeeSelect')?.addEventListener('change', () => loadRhReports(true));
+  document.getElementById('fltDepartment')?.addEventListener('change', () => loadRhReports(true));
+  document.getElementById('fltWorkdayMinutes')?.addEventListener('change', () => loadRhReports(false));
+  document.getElementById('fltDirectionRaw')?.addEventListener('change', () => loadRhReports(true));
 
   document.getElementById('fltEmployeeSearch')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter') loadRhReports();
+    if (e.key === 'Enter') loadRhReports(true);
   });
 
   document.getElementById('btnClearFilters')?.addEventListener('click', () => {
@@ -1620,7 +1883,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('fltDepartment').value = '';
     document.getElementById('fltDirectionRaw').value = 'ALL';
     applyQuickPeriod('month');
-    loadRhReports();
+    loadRhReports(true);
   });
 
   // Exportar CSV e Imprimir/PDF
@@ -1667,7 +1930,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btnSaveDayEditorAdj')?.addEventListener('click', saveDayEditorAdjustment);
   document.getElementById('btnRemoveDayAdjustment')?.addEventListener('click', removeDayEditorAdjustment);
 
-  // Modal de configuração do banco iD Control
+  // Modal de configuração dos 2 Logins de Banco de Dados (Login 1 Leitura + Login 2 Gravação)
   document.getElementById('btnOpenIdControlConfig')?.addEventListener('click', openIdControlConfigModal);
   document.getElementById('btnCloseIdControlConfig')?.addEventListener('click', () => {
     document.getElementById('modalIdControlConfig')?.classList.remove('active');
@@ -1676,6 +1939,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('modalIdControlConfig')?.classList.remove('active');
   });
   document.getElementById('btnTestAndDiscover')?.addEventListener('click', testAndDiscoverIdControlDb);
+  document.getElementById('btnTestCommercialDb')?.addEventListener('click', testCommercialDb);
   document.getElementById('btnSaveIdControlConfig')?.addEventListener('click', saveIdControlConfig);
 
   // Quando o usuário escolher outro banco na lista de bancos encontrados no MySQL, atualiza o campo e detecta as tabelas dele
