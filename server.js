@@ -12,6 +12,7 @@ const crypto = require('crypto');
 const os = require('os');
 const selfsigned = require('selfsigned');
 const db = require('./db');
+const rhDb = require('./rh-db');
 
 const app = express();
 
@@ -130,8 +131,46 @@ if (!fs.existsSync(USERS_PATH)) {
       phone: "(47) 9 8888-0000",
       email: "fabio@sednagroup.com.br",
       createdAt: new Date().toISOString()
+    },
+    {
+      id: "usr-rh",
+      username: "rh",
+      password: "123",
+      name: "Recursos Humanos",
+      role: "rh",
+      roleLabel: "RH (Recursos Humanos)",
+      canViewAll: false,
+      canEditAll: false,
+      canManageUsers: false,
+      phone: "(47) 9 9187-9441",
+      email: "rh@sednagroup.com.br",
+      mustChangePassword: true,
+      createdAt: new Date().toISOString()
     }
   ]);
+} else {
+  // Garante que exista pelo menos o usuário inicial de RH caso ainda não tenha sido criado
+  try {
+    const existingUsers = readJson(USERS_PATH, []);
+    if (Array.isArray(existingUsers) && !existingUsers.some(u => u.role === 'rh' || u.username.toLowerCase() === 'rh')) {
+      existingUsers.push({
+        id: "usr-rh",
+        username: "rh",
+        password: "123",
+        name: "Recursos Humanos",
+        role: "rh",
+        roleLabel: "RH (Recursos Humanos)",
+        canViewAll: false,
+        canEditAll: false,
+        canManageUsers: false,
+        phone: "(47) 9 9187-9441",
+        email: "rh@sednagroup.com.br",
+        mustChangePassword: true,
+        createdAt: new Date().toISOString()
+      });
+      writeJson(USERS_PATH, existingUsers);
+    }
+  } catch (e) {}
 }
 
 // Sessions kept in memory during server runtime (reset on server start)
@@ -755,6 +794,11 @@ app.post('/api/users', authMiddleware, (req, res) => {
     finalCanViewAll = true;
     finalCanEditAll = false;
     finalCanManageUsers = false;
+  } else if (userRole === 'rh') {
+    roleLabel = 'RH (Recursos Humanos)';
+    finalCanViewAll = false;
+    finalCanEditAll = false;
+    finalCanManageUsers = false;
   } else {
     roleLabel = 'Comercial';
     finalCanViewAll = false;
@@ -854,6 +898,7 @@ app.put('/api/users/:id', authMiddleware, (req, res) => {
     current.role = role;
     if (role === 'admin') current.roleLabel = 'Administrador';
     else if (role === 'president') current.roleLabel = 'Presidente';
+    else if (role === 'rh') current.roleLabel = 'RH (Recursos Humanos)';
     else current.roleLabel = 'Comercial';
   }
 
@@ -1573,6 +1618,73 @@ app.post('/api/admin/db/restore-now', authMiddleware, async (req, res) => {
     res.json({ message: 'Restauração completa a partir do MySQL 5.7 concluída com sucesso!', ...restoreResult });
   } catch (err) {
     res.status(500).json({ error: 'Erro ao executar restauração: ' + err.message });
+  }
+});
+
+// ================= RH (RECURSOS HUMANOS) - CATRACA iD CONTROL API =================
+
+function canAccessRh(user) {
+  if (!user) return false;
+  return user.role === 'rh' || user.role === 'admin' || user.role === 'president' || !!user.canManageUsers;
+}
+
+// Get attendance reports (Paired, Direct 1st-to-Last, Raw Logs & Monthly Summary)
+app.get('/api/rh/reports', authMiddleware, async (req, res) => {
+  if (!canAccessRh(req.user)) {
+    return res.status(403).json({ error: 'Acesso restrito ao setor de Recursos Humanos e Diretoria.' });
+  }
+  try {
+    const data = await rhDb.getAttendanceReports(req.query || {});
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao processar relatórios de horas: ' + err.message });
+  }
+});
+
+// Get iD Control database configuration
+app.get('/api/rh/config', authMiddleware, (req, res) => {
+  if (!canAccessRh(req.user)) {
+    return res.status(403).json({ error: 'Acesso restrito.' });
+  }
+  try {
+    const cfg = rhDb.loadRhConfig();
+    res.json(cfg);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Save iD Control database configuration & table mapping
+app.post('/api/rh/config', authMiddleware, async (req, res) => {
+  if (!canAccessRh(req.user)) {
+    return res.status(403).json({ error: 'Acesso restrito.' });
+  }
+  try {
+    const saved = rhDb.saveRhConfig(req.body || {});
+    let connectionCheck = null;
+    if (saved.enabled) {
+      connectionCheck = await rhDb.testAndInspectDatabase(saved);
+    }
+    res.json({
+      message: 'Configuração do banco iD Control salva com sucesso!',
+      config: saved,
+      connectionCheck
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Test connection to iD Control database and auto-discover tables/columns
+app.post('/api/rh/test-connection', authMiddleware, async (req, res) => {
+  if (!canAccessRh(req.user)) {
+    return res.status(403).json({ error: 'Acesso restrito.' });
+  }
+  try {
+    const result = await rhDb.testAndInspectDatabase(req.body || {});
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ connected: false, message: err.message });
   }
 });
 

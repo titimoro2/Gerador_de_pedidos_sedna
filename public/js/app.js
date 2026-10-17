@@ -2710,16 +2710,30 @@ function setCurrentUser(user) {
     if (navUserArea) navUserArea.style.display = 'none';
     return;
   }
+
+  // Se for um usuário exclusivamente do RH, redireciona automaticamente para a página do RH
+  if (user.role === 'rh' && !user.canManageUsers) {
+    window.location.replace('/rh.html');
+    return;
+  }
+
   if (navUserArea) navUserArea.style.display = 'flex';
 
   const navUserName = document.getElementById('navUserName');
   const navUserRole = document.getElementById('navUserRole');
   const btnOpenUserManagement = document.getElementById('btnOpenUserManagement');
+  const btnGoToRhPanel = document.getElementById('btnGoToRhPanel');
 
   if (navUserName) navUserName.textContent = user.name || user.username;
   if (navUserRole) {
     navUserRole.textContent = user.roleLabel || user.role;
     navUserRole.className = `user-role-badge role-${user.role}`;
+  }
+
+  // Show "Painel RH" button to Admin, President, RH, or user managers
+  if (btnGoToRhPanel) {
+    const canSeeRh = user.role === 'admin' || user.role === 'president' || user.role === 'rh' || !!user.canManageUsers;
+    btnGoToRhPanel.style.display = canSeeRh ? 'inline-flex' : 'none';
   }
 
   // Show "Usuários" button only to users with canManageUsers
@@ -3057,8 +3071,12 @@ async function loadUsersList() {
       const isDefaultAdmin = u.username === 'admin';
 
       const perms = [];
-      if (u.canViewAll) perms.push('<span class="perm-pill active">Ver Todas</span>');
-      else perms.push('<span class="perm-pill">Ver Próprias</span>');
+      if (u.role === 'rh') {
+        perms.push('<span class="perm-pill active" style="background:#e0f2fe; color:#0369a1; border-color:#7dd3fc;">Painel RH (Catraca)</span>');
+      } else {
+        if (u.canViewAll) perms.push('<span class="perm-pill active">Ver Todas</span>');
+        else perms.push('<span class="perm-pill">Ver Próprias</span>');
+      }
       if (u.canEditAll) perms.push('<span class="perm-pill active">Editar Todas</span>');
       if (u.canManageUsers) perms.push('<span class="perm-pill active">Gerenciar Usuários</span>');
 

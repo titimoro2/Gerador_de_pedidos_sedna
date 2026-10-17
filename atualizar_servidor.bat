@@ -66,6 +66,7 @@ echo [1/5] Fazendo backup de seguranca dos dados locais...
 if not exist "data\backups_locais" mkdir "data\backups_locais"
 if exist "data\users.json" copy /y "data\users.json" "data\backups_locais\users_backup.json" > nul
 if exist "data\db-config.json" copy /y "data\db-config.json" "data\backups_locais\db-config_backup.json" > nul
+if exist "data\rh-db-config.json" copy /y "data\rh-db-config.json" "data\backups_locais\rh-db-config_backup.json" > nul
 if exist ".env" copy /y ".env" "data\backups_locais\env_backup.env" > nul
 echo       Backup local concluido com sucesso.
 echo.
@@ -112,6 +113,12 @@ if not exist "data\db-config.json" (
   if exist "data\backups_locais\db-config_backup.json" (
     copy /y "data\backups_locais\db-config_backup.json" "data\db-config.json" > nul
     echo       - data\db-config.json restaurado do backup local.
+  )
+)
+if not exist "data\rh-db-config.json" (
+  if exist "data\backups_locais\rh-db-config_backup.json" (
+    copy /y "data\backups_locais\rh-db-config_backup.json" "data\rh-db-config.json" > nul
+    echo       - data\rh-db-config.json restaurado do backup local.
   )
 )
 if not exist ".env" (

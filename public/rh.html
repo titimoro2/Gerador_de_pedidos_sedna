@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Painel RH &middot; Controle de Horas &amp; Catraca iD Control &middot; Sedna Group</title>
+  <!-- Google Fonts: Barlow & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css?v=2.8">
+  <style>
+    :root {
+      --rh-primary: #1b3558;
+      --rh-accent: #0284c7;
+      --rh-success: #16a34a;
+      --rh-warning: #d97706;
+      --rh-danger: #dc2626;
+      --rh-bg: #f1f5f9;
+    }
+
+    body.rh-body {
+      background-color: var(--rh-bg);
+      color: #0f172a;
+      font-family: 'Inter', sans-serif;
+      margin: 0;
+      min-height: 100vh;
+    }
+
+    .rh-container {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 20px 24px 60px;
+    }
+
+    /* Banner de Status do Banco iD Control */
+    .rh-status-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-left: 5px solid var(--rh-accent);
+      border-radius: 10px;
+      padding: 12px 18px;
+      margin-bottom: 18px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+    }
+
+    .rh-status-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .status-dot {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      display: inline-block;
+      background: #0284c7;
+      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.2);
+    }
+    .status-dot.connected {
+      background: #16a34a;
+      box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.22);
+    }
+    .status-dot.warning {
+      background: #f59e0b;
+      box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.22);
+    }
+
+    /* Card de Filtros */
+    .rh-filters-card {
+      background: #ffffff;
+      border-radius: 12px;
+      border: 1px solid #cbd5e1;
+      padding: 18px 20px;
+      margin-bottom: 20px;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+    }
+
+    .rh-filters-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .rh-filters-title {
+      font-family: 'Barlow', sans-serif;
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--rh-primary);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0;
+    }
+
+    .period-quick-btns {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .btn-period-pill {
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      color: #334155;
+      padding: 5px 11px;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .btn-period-pill:hover, .btn-period-pill.active {
+      background: var(--rh-primary);
+      color: #ffffff;
+      border-color: var(--rh-primary);
+    }
+
+    .rh-filters-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(175px, 1fr));
+      gap: 12px;
+      align-items: end;
+    }
+
+    .rh-filter-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .rh-filter-group label {
+      font-size: 0.76rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #475569;
+      letter-spacing: 0.3px;
+    }
+
+    .rh-filter-group input,
+    .rh-filter-group select {
+      padding: 8px 11px;
+      border-radius: 6px;
+      border: 1px solid #cbd5e1;
+      font-size: 0.88rem;
+      background: #f8fafc;
+      color: #0f172a;
+      height: 38px;
+      box-sizing: border-box;
+    }
+
+    .rh-filter-group input:focus,
+    .rh-filter-group select:focus {
+      outline: none;
+      border-color: var(--rh-accent);
+      background: #ffffff;
+      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+    }
+
+    /* KPI Summary Cards */
+    .rh-kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+
+    .rh-kpi-card {
+      background: #ffffff;
+      border-radius: 10px;
+      border: 1px solid #cbd5e1;
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+      border-top: 4px solid var(--rh-primary);
+    }
+    .rh-kpi-card.kpi-paired { border-top-color: #0284c7; }
+    .rh-kpi-card.kpi-direct { border-top-color: #16a34a; }
+    .rh-kpi-card.kpi-alerts { border-top-color: #d97706; }
+
+    .rh-kpi-label {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: #64748b;
+      letter-spacing: 0.4px;
+    }
+
+    .rh-kpi-value {
+      font-family: 'Barlow', sans-serif;
+      font-size: 1.75rem;
+      font-weight: 800;
+      color: #0f172a;
+      margin: 6px 0 4px;
+    }
+
+    .rh-kpi-sub {
+      font-size: 0.78rem;
+      color: #64748b;
+    }
+
+    /* Report Selector Tabs (Os 3 Relatórios + Consolidado Mensal) */
+    .rh-report-selector {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .rh-report-tab {
+      background: #ffffff;
+      border: 2px solid #cbd5e1;
+      border-radius: 10px;
+      padding: 13px 16px;
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.15s;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .rh-report-tab:hover {
+      border-color: #94a3b8;
+      background: #f8fafc;
+    }
+
+    .rh-report-tab.active {
+      border-color: var(--rh-accent);
+      background: #f0f9ff;
+      box-shadow: 0 4px 12px rgba(2, 132, 199, 0.12);
+    }
+
+    .rh-report-tab-title {
+      font-family: 'Barlow', sans-serif;
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--rh-primary);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .rh-report-tab.active .rh-report-tab-title {
+      color: #0369a1;
+    }
+
+    .rh-report-tab-desc {
+      font-size: 0.76rem;
+      color: #64748b;
+      line-height: 1.35;
+    }
+
+    /* Tabelas de Relatório */
+    .rh-report-panel {
+      display: none;
+      background: #ffffff;
+      border-radius: 12px;
+      border: 1px solid #cbd5e1;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+      overflow: hidden;
+    }
+
+    .rh-report-panel.active {
+      display: block;
+    }
+
+    .rh-panel-header {
+      padding: 16px 20px;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .rh-panel-header h3 {
+      font-family: 'Barlow', sans-serif;
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--rh-primary);
+      margin: 0;
+    }
+
+    .rh-table-responsive {
+      width: 100%;
+      overflow-x: auto;
+    }
+
+    .rh-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+
+    .rh-table th {
+      background: #1b3558;
+      color: #ffffff;
+      font-weight: 600;
+      text-align: left;
+      padding: 11px 14px;
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.4px;
+      white-space: nowrap;
+    }
+
+    .rh-table td {
+      padding: 11px 14px;
+      border-bottom: 1px solid #e2e8f0;
+      color: #1e293b;
+      vertical-align: middle;
+    }
+
+    .rh-table tbody tr:hover {
+      background-color: #f8fafc;
+    }
+
+    /* Badges de Entrada, Saída, Pares e Saldo */
+    .pass-pair-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: #f1f5f9;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 3px 8px;
+      margin: 2px 4px 2px 0;
+      font-size: 0.78rem;
+      font-family: ui-monospace, monospace;
+    }
+
+    .pass-pair-pill.incomplete {
+      background: #fef3c7;
+      border-color: #f59e0b;
+      color: #92400e;
+      font-weight: 600;
+    }
+
+    .dir-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 9px;
+      border-radius: 99px;
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.3px;
+    }
+    .dir-badge.in {
+      background: #dcfce7;
+      color: #15803d;
+      border: 1px solid #86efac;
+    }
+    .dir-badge.out {
+      background: #fee2e2;
+      color: #b91c1c;
+      border: 1px solid #fca5a5;
+    }
+
+    .balance-badge {
+      font-family: ui-monospace, monospace;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 5px;
+      font-size: 0.8rem;
+      white-space: nowrap;
+    }
+    .balance-badge.positive {
+      background: #dcfce7;
+      color: #15803d;
+    }
+    .balance-badge.negative {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
+    .balance-badge.neutral {
+      background: #f1f5f9;
+      color: #475569;
+    }
+
+    .hours-highlight {
+      font-family: ui-monospace, monospace;
+      font-weight: 700;
+      font-size: 0.92rem;
+      color: #0f172a;
+      background: #e0f2fe;
+      padding: 4px 9px;
+      border-radius: 6px;
+      border: 1px solid #bae6fd;
+      white-space: nowrap;
+    }
+
+    /* Impressão limpa de relatórios para o RH */
+    @media print {
+      .navbar, .rh-status-bar, .rh-filters-card, .rh-report-selector, .no-print {
+        display: none !important;
+      }
+      body.rh-body {
+        background: #ffffff;
+      }
+      .rh-container {
+        padding: 0;
+        max-width: 100%;
+      }
+      .rh-report-panel {
+        border: none;
+        box-shadow: none;
+      }
+      .rh-table th {
+        background: #e2e8f0 !important;
+        color: #000000 !important;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
+  </style>
+</head>
+<body class="rh-body">
+
+  <!-- Top Navigation Bar -->
+  <header class="navbar">
+    <div class="nav-container">
+      <div class="nav-brand">
+        <img src="/assets/logo_sedna.png" alt="Sedna" class="nav-logo" onerror="this.style.display='none'">
+        <div>
+          <span class="brand-title">RECURSOS HUMANOS &middot; CONTROLE DE HORAS</span>
+          <span class="brand-subtitle">Sedna Group &middot; Integração Catraca iD Control</span>
+        </div>
+      </div>
+
+      <div class="nav-actions" style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+        <button type="button" id="btnOpenIdControlConfig" class="btn btn-secondary btn-sm">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+          Banco iD Control
+        </button>
+
+        <button type="button" id="btnExportCsv" class="btn btn-secondary btn-sm" title="Exportar tabela atual para planilha Excel (CSV)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          Exportar Excel
+        </button>
+
+        <button type="button" id="btnPrintReport" class="btn btn-primary btn-sm" title="Imprimir ou Salvar em PDF o relatório selecionado">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+          Imprimir / PDF
+        </button>
+
+        <!-- Botão para Admin/Presidente alternar para o Comercial -->
+        <a href="/" id="btnSwitchToCommercial" class="btn btn-sm btn-outline-primary" style="display: none; text-decoration: none;" title="Alternar para o Gerador de Pedidos Comercial">
+          🚤 Painel Comercial
+        </a>
+
+        <div class="nav-user-area" id="rhUserArea" style="display: flex;">
+          <div class="user-pill">
+            <span class="user-avatar">👤</span>
+            <div class="user-details">
+              <span class="user-name" id="rhUserName">Carregando...</span>
+              <span class="user-role-badge" id="rhUserRole">RH</span>
+            </div>
+          </div>
+
+          <button type="button" id="btnOpenChangePassword" class="btn btn-sm btn-outline-secondary" title="Alterar Minha Senha">
+            Senha
+          </button>
+          <button type="button" id="btnLogout" class="btn btn-sm btn-outline-danger" title="Encerrar Sessão">
+            Sair
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="rh-container">
+
+    <!-- Barra de Status da Conexão com a Catraca iD Control -->
+    <div class="rh-status-bar">
+      <div class="rh-status-left">
+        <span class="status-dot" id="idControlStatusDot"></span>
+        <div>
+          <strong id="idControlStatusTitle" style="font-size: 0.9rem;">Verificando conexão com o banco iD Control...</strong>
+          <div id="idControlStatusDesc" style="font-size: 0.78rem; color: #64748b;">Consultando registros de giros da catraca</div>
+        </div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <button type="button" id="btnRefreshData" class="btn btn-sm btn-secondary">
+          🔄 Atualizar Giros da Catraca
+        </button>
+      </div>
+    </div>
+
+    <!-- Painel de Filtros (Dia, Hora, Funcionário, Setor e Parâmetros) -->
+    <section class="rh-filters-card">
+      <div class="rh-filters-header">
+        <h2 class="rh-filters-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+          Filtros de Apuração de Ponto &amp; Catraca
+        </h2>
+        <div class="period-quick-btns">
+          <button type="button" class="btn-period-pill" data-period="today">Hoje</button>
+          <button type="button" class="btn-period-pill" data-period="week">Esta Semana</button>
+          <button type="button" class="btn-period-pill active" data-period="month">Este Mês</button>
+          <button type="button" class="btn-period-pill" data-period="prev_month">Mês Passado</button>
+          <button type="button" class="btn-period-pill" data-period="all">Todo o Período</button>
+        </div>
+      </div>
+
+      <div class="rh-filters-grid">
+        <div class="rh-filter-group">
+          <label for="fltStartDate">Data Inicial (Dia)</label>
+          <input type="date" id="fltStartDate">
+        </div>
+
+        <div class="rh-filter-group">
+          <label for="fltEndDate">Data Final (Dia)</label>
+          <input type="date" id="fltEndDate">
+        </div>
+
+        <div class="rh-filter-group">
+          <label for="fltStartTime">Hora Inicial</label>
+          <input type="time" id="fltStartTime" title="Filtra giros a partir deste horário">
+        </div>
+
+        <div class="rh-filter-group">
+          <label for="fltEndTime">Hora Final</label>
+          <input type="time" id="fltEndTime" title="Filtra giros até este horário">
+        </div>
+
+        <div class="rh-filter-group">
+          <label for="fltEmployeeSelect">Selecionar Funcionário</label>
+          <select id="fltEmployeeSelect">
+            <option value="">Todos os Funcionários</option>
+          </select>
+        </div>
+
+        <div class="rh-filter-group">
+          <label for="fltEmployeeSearch">Buscar por Nome / Matrícula</label>
+          <input type="text" id="fltEmployeeSearch" placeholder="Digite o nome ou matrícula...">
+        </div>
+
+        <div class="rh-filter-group">
+          <label for="fltDepartment">Setor / Departamento</label>
+          <select id="fltDepartment">
+            <option value="">Todos os Setores</option>
+          </select>
+        </div>
+
+        <div class="rh-filter-group">
+          <label for="fltWorkdayMinutes">Meta Diária Padrão</label>
+          <select id="fltWorkdayMinutes">
+            <option value="528">08h 48m (44h Semanais)</option>
+            <option value="480">08h 00m (40h Semanais)</option>
+            <option value="360">06h 00m (Turno 6h)</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px;">
+        <button type="button" id="btnClearFilters" class="btn btn-sm btn-secondary">Limpar Filtros</button>
+        <button type="button" id="btnApplyFilters" class="btn btn-sm btn-primary">🔍 Aplicar Filtros</button>
+      </div>
+    </section>
+
+    <!-- Cards de Resumo (KPIs) -->
+    <section class="rh-kpi-grid">
+      <div class="rh-kpi-card">
+        <span class="rh-kpi-label">Funcionários &amp; Presenças</span>
+        <div class="rh-kpi-value" id="kpiEmployeesCount">0</div>
+        <span class="rh-kpi-sub" id="kpiDaysWorkedSub">0 diárias registradas no período</span>
+      </div>
+
+      <div class="rh-kpi-card kpi-paired">
+        <span class="rh-kpi-label">Total Horas (Pareado E/S)</span>
+        <div class="rh-kpi-value" id="kpiTotalPairedHours">00h 00m</div>
+        <span class="rh-kpi-sub">Soma exata de cada Entrada até cada Saída</span>
+      </div>
+
+      <div class="rh-kpi-card kpi-direct">
+        <span class="rh-kpi-label">Total Horas (1ª à Última Batida)</span>
+        <div class="rh-kpi-value" id="kpiTotalDirectHours">00h 00m</div>
+        <span class="rh-kpi-sub" id="kpiDirectSub">Descontando intervalo padrão de almoço</span>
+      </div>
+
+      <div class="rh-kpi-card kpi-alerts">
+        <span class="rh-kpi-label">Giros na Catraca &amp; Alertas</span>
+        <div class="rh-kpi-value" id="kpiRawPassesCount">0</div>
+        <span class="rh-kpi-sub" id="kpiUnpairedAlerts">0 dias com batida ímpar/incompleta</span>
+      </div>
+    </section>
+
+    <!-- Seletor de Modo de Relatório (O RH escolhe qual relatório quer ver) -->
+    <section class="rh-report-selector">
+      <button type="button" class="rh-report-tab active" data-report="monthly">
+        <div class="rh-report-tab-title">
+          <span>📊 Consolidado Mensal</span>
+          <span class="badge-step" id="badgeCountMonthly">0</span>
+        </div>
+        <div class="rh-report-tab-desc">
+          Total de horas acumuladas no mês/período por funcionário, média diária e saldo de horas.
+        </div>
+      </button>
+
+      <button type="button" class="rh-report-tab" data-report="paired">
+        <div class="rh-report-tab-title">
+          <span>🔄 1. Horas Pareadas (E/S)</span>
+          <span class="badge-step" id="badgeCountPaired">0</span>
+        </div>
+        <div class="rh-report-tab-desc">
+          Pareia 1ª Entrada com 1ª Saída, volta do almoço com saída final, somando o tempo real interno.
+        </div>
+      </button>
+
+      <button type="button" class="rh-report-tab" data-report="direct">
+        <div class="rh-report-tab-title">
+          <span>⏳ 2. Jornada 1ª à Última Batida</span>
+          <span class="badge-step" id="badgeCountDirect">0</span>
+        </div>
+        <div class="rh-report-tab-desc">
+          Calcula da primeira batida do dia até a última batida do dia (tempo bruto e líquido com almoço).
+        </div>
+      </button>
+
+      <button type="button" class="rh-report-tab" data-report="raw">
+        <div class="rh-report-tab-title">
+          <span>📋 3. Dados Brutos da Catraca</span>
+          <span class="badge-step" id="badgeCountRaw">0</span>
+        </div>
+        <div class="rh-report-tab-desc">
+          Auditoria de todos os giros individuais gravados pelo iD Control com hora, minuto e segundo.
+        </div>
+      </button>
+    </section>
+
+    <!-- PAINEL 0: CONSOLIDADO MENSAL POR FUNCIONÁRIO -->
+    <section id="panel-monthly" class="rh-report-panel active">
+      <div class="rh-panel-header">
+        <div>
+          <h3>📊 Consolidado Mensal de Horas Trabalhadas por Funcionário</h3>
+          <span class="text-muted" style="font-size: 0.8rem;">Comparativo completo das horas acumuladas no período filtrado (Clique em "Ver Detalhes" para focar em um funcionário)</span>
+        </div>
+      </div>
+      <div class="rh-table-responsive">
+        <table class="rh-table" id="tableMonthly">
+          <thead>
+            <tr>
+              <th>Funcionário</th>
+              <th>Matrícula</th>
+              <th>Setor</th>
+              <th>Dias Trab.</th>
+              <th>Giros</th>
+              <th>Total Horas (Pareado E/S)</th>
+              <th>Intervalo Acumulado</th>
+              <th>Total Horas (1ª à Última Líq.)</th>
+              <th>Permanência Bruta</th>
+              <th>Média / Dia</th>
+              <th>Meta Esperada</th>
+              <th>Saldo no Período</th>
+              <th class="no-print" style="text-align: right;">Ação</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyMonthly"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- PAINEL 1: RELATÓRIO 1 - HORAS PAREADAS (ENTRADA & SAÍDA GIRO A GIRO) -->
+    <section id="panel-paired" class="rh-report-panel">
+      <div class="rh-panel-header">
+        <div>
+          <h3>🔄 Relatório 1: Apuração Diária por Horas Pareadas (Entradas &amp; Saídas)</h3>
+          <span class="text-muted" style="font-size: 0.8rem;">Soma cada período entre uma Entrada e sua respectiva Saída na catraca e aponta batidas ímpares</span>
+        </div>
+      </div>
+      <div class="rh-table-responsive">
+        <table class="rh-table" id="tablePaired">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Dia da Semana</th>
+              <th>Funcionário</th>
+              <th>Setor</th>
+              <th>Pares de Entrada &rarr; Saída Registrados na Catraca</th>
+              <th>Intervalo / Almoço</th>
+              <th>Horas Trabalhadas (Pareado)</th>
+              <th>Meta do Dia</th>
+              <th>Saldo Diário</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyPaired"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- PAINEL 2: RELATÓRIO 2 - JORNADA DIRETA (1ª ENTRADA ATÉ ÚLTIMA SAÍDA) -->
+    <section id="panel-direct" class="rh-report-panel">
+      <div class="rh-panel-header">
+        <div>
+          <h3>⏳ Relatório 2: Apuração pela 1ª Batida até a Última Batida do Dia</h3>
+          <span class="text-muted" style="font-size: 0.8rem;">Calcula o tempo decorrido entre o primeiro giro do dia e o último giro do dia na catraca</span>
+        </div>
+      </div>
+      <div class="rh-table-responsive">
+        <table class="rh-table" id="tableDirect">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Dia da Semana</th>
+              <th>Funcionário</th>
+              <th>Setor</th>
+              <th>1ª Batida (Entrada)</th>
+              <th>Última Batida (Saída)</th>
+              <th>Qtd. Giros</th>
+              <th>Tempo Bruto no Local</th>
+              <th>Desconto Almoço</th>
+              <th>Horas Líquidas (1ª à Última)</th>
+              <th>Saldo Diário</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyDirect"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- PAINEL 3: RELATÓRIO 3 - DADOS BRUTOS DA CATRACA (GIRO A GIRO) -->
+    <section id="panel-raw" class="rh-report-panel">
+      <div class="rh-panel-header">
+        <div>
+          <h3>📋 Relatório 3: Registros Brutos da Catraca iD Control (Giro a Giro)</h3>
+          <span class="text-muted" style="font-size: 0.8rem;">Listagem integral de cada passagem registrada na catraca com horário exato</span>
+        </div>
+        <div class="no-print" style="display: flex; align-items: center; gap: 8px;">
+          <label for="fltDirectionRaw" style="font-size: 0.78rem; font-weight: 600;">Sentido:</label>
+          <select id="fltDirectionRaw" style="padding: 6px 10px; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 0.82rem;">
+            <option value="ALL">Todos (Entradas e Saídas)</option>
+            <option value="ENTRADA">Apenas Entradas</option>
+            <option value="SAIDA">Apenas Saídas</option>
+          </select>
+        </div>
+      </div>
+      <div class="rh-table-responsive">
+        <table class="rh-table" id="tableRaw">
+          <thead>
+            <tr>
+              <th>ID Registro</th>
+              <th>Data</th>
+              <th>Dia da Semana</th>
+              <th>Hora Exata</th>
+              <th>Funcionário</th>
+              <th>Matrícula</th>
+              <th>Setor</th>
+              <th>Sentido do Giro</th>
+              <th>Equipamento / Catraca</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyRaw"></tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- MODAL: CONFIGURAÇÃO DO BANCO DE DADOS iD CONTROL (SQL SERVER / MYSQL) -->
+  <div class="modal-overlay" id="modalIdControlConfig">
+    <div class="modal-card" style="max-width: 780px; width: 95%;">
+      <div class="modal-header flex-between">
+        <div>
+          <h3 style="margin: 0; font-size: 1.2rem; color: var(--rh-primary);">⚙️ Conexão Banco de Dados Catraca iD Control</h3>
+          <span class="text-muted" style="font-size: 0.8rem;">Configure a leitura direta do SQL Server ou MySQL onde o software iDSecure / iD Control grava os giros</span>
+        </div>
+        <button type="button" id="btnCloseIdControlConfig" class="btn-icon" style="font-size: 1.5rem; background: none; border: none; cursor: pointer;">&times;</button>
+      </div>
+      <div class="modal-body" style="max-height: 78vh; overflow-y: auto; padding-top: 12px;">
+        <div style="background: #f8fafc; padding: 14px; border-radius: 8px; border: 1px solid #cbd5e1; margin-bottom: 16px;">
+          <label style="display: flex; align-items: center; gap: 10px; cursor: pointer; font-weight: 700; color: #0f172a;">
+            <input type="checkbox" id="cfgEnabled" style="width: 18px; height: 18px; accent-color: var(--rh-accent);">
+            <span>Ativar leitura em tempo real do Banco de Dados do iD Control</span>
+          </label>
+          <small class="text-muted" style="display: block; margin-top: 4px; margin-left: 28px;">
+            Quando desmarcado, o painel exibe os dados em Modo Demonstração/Simulação para testes.
+          </small>
+        </div>
+
+        <div class="grid-form grid-2" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;">
+          <div class="form-group">
+            <label>Tipo de Banco de Dados</label>
+            <select id="cfgDbType" class="form-control">
+              <option value="mssql">Microsoft SQL Server (Padrão iDSecure / Control iD)</option>
+              <option value="mysql">MySQL / MariaDB</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Host / IP do Servidor do Banco</label>
+            <input type="text" id="cfgHost" class="form-control" placeholder="localhost ou localhost\SQLEXPRESS">
+          </div>
+          <div class="form-group">
+            <label>Porta (Padrão SQL Server: 1433 | MySQL: 3306)</label>
+            <input type="number" id="cfgPort" class="form-control" placeholder="1433">
+          </div>
+          <div class="form-group">
+            <label>Nome do Banco de Dados (Database)</label>
+            <input type="text" id="cfgDatabase" class="form-control" placeholder="iDSecure">
+          </div>
+          <div class="form-group">
+            <label>Usuário do Banco</label>
+            <input type="text" id="cfgUser" class="form-control" placeholder="sa">
+          </div>
+          <div class="form-group">
+            <label>Senha do Banco</label>
+            <input type="password" id="cfgPassword" class="form-control" placeholder="Senha do banco de dados">
+          </div>
+        </div>
+
+        <div style="margin-top: 14px; display: flex; justify-content: flex-end;">
+          <button type="button" id="btnTestAndDiscover" class="btn btn-sm btn-secondary">
+            🔌 Testar Conexão &amp; Detectar Tabelas Automaticamente
+          </button>
+        </div>
+
+        <div id="cfgConnectionAlert" style="display: none; margin-top: 12px; padding: 10px 14px; border-radius: 6px; font-size: 0.84rem;"></div>
+
+        <!-- Mapeamento de Tabelas e Colunas da Catraca -->
+        <div style="margin-top: 18px; padding-top: 14px; border-top: 1px solid #cbd5e1;">
+          <h4 style="margin: 0 0 8px; font-size: 0.95rem; color: var(--rh-primary);">Mapeamento de Tabelas do iD Control</h4>
+          <p class="text-muted" style="font-size: 0.78rem; margin-top: 0; margin-bottom: 12px;">
+            O sistema já vem pré-configurado para o padrão Control iD (<code>AccessLogs</code> e <code>Users</code>). Se o seu banco usar outros nomes, clique em "Detectar Tabelas" acima ou ajuste abaixo:
+          </p>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+            <div class="form-group">
+              <label>Tabela de Giros / Acessos</label>
+              <input type="text" id="mapLogsTable" class="form-control" placeholder="AccessLogs">
+            </div>
+            <div class="form-group">
+              <label>Coluna de Data/Hora do Giro</label>
+              <input type="text" id="mapColLogTime" class="form-control" placeholder="time">
+            </div>
+            <div class="form-group">
+              <label>Coluna ID do Funcionário no Giro</label>
+              <input type="text" id="mapColLogUserId" class="form-control" placeholder="idUser">
+            </div>
+            <div class="form-group">
+              <label>Coluna de Sentido / Evento</label>
+              <input type="text" id="mapColLogDirection" class="form-control" placeholder="event">
+            </div>
+            <div class="form-group">
+              <label>Tabela de Funcionários</label>
+              <input type="text" id="mapUsersTable" class="form-control" placeholder="Users">
+            </div>
+            <div class="form-group">
+              <label>Coluna ID na Tabela Funcionários</label>
+              <input type="text" id="mapColUserId" class="form-control" placeholder="id">
+            </div>
+            <div class="form-group">
+              <label>Coluna Nome do Funcionário</label>
+              <input type="text" id="mapColUserName" class="form-control" placeholder="name">
+            </div>
+            <div class="form-group">
+              <label>Coluna Matrícula / PIS (Opcional)</label>
+              <input type="text" id="mapColUserRegistration" class="form-control" placeholder="registration">
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-actions flex-between" style="margin-top: 20px; padding-top: 12px; border-top: 1px solid #e2e8f0;">
+          <button type="button" id="btnCancelIdControlConfig" class="btn btn-secondary">Fechar</button>
+          <button type="button" id="btnSaveIdControlConfig" class="btn btn-primary">💾 Salvar Configuração &amp; Carregar Dados</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: ALTERAR SENHA (SELF-SERVICE E TROCA OBRIGATÓRIA NO 1º ACESSO) -->
+  <div class="modal-overlay" id="modalChangePassword">
+    <div class="modal-card" style="max-width: 440px;">
+      <div class="modal-header flex-between">
+        <div>
+          <h3 id="changePasswordTitle" style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--rh-primary);">Alterar Senha</h3>
+          <span class="card-desc" id="changePasswordDesc" style="font-size: 0.8rem; color: #64748b;">Defina uma nova senha pessoal para a sua conta.</span>
+        </div>
+        <button id="btnCloseChangePassword" class="btn-icon" title="Fechar" style="font-size: 1.4rem; background: none; border: none; cursor: pointer; color: #64748b;">&times;</button>
+      </div>
+      <div class="modal-body" style="padding-top: 10px;">
+        <div id="firstAccessBanner" style="display: none; background: #fef3c7; border: 1px solid #f59e0b; color: #92400e; padding: 12px; border-radius: 6px; font-size: 0.84rem; margin-bottom: 14px; line-height: 1.4;">
+          <strong>⚠️ Troca Obrigatória de Senha:</strong> Sua senha foi definida ou redefinida pelo Administrador. Por segurança, cadastre uma nova senha pessoal para continuar.
+        </div>
+        <div id="changePasswordAlert" style="display: none; padding: 10px; border-radius: 6px; font-size: 0.84rem; margin-bottom: 12px;"></div>
+        <form id="formChangePassword" onsubmit="return false;">
+          <div class="form-group" id="grpCurrentPassword">
+            <label for="inpCurrentPassword" style="font-size: 0.82rem; font-weight: 600;">Senha Atual *</label>
+            <input type="password" id="inpCurrentPassword" class="form-control" placeholder="Digite sua senha atual">
+          </div>
+          <div class="form-group" style="margin-top: 10px;">
+            <label for="inpNewPassword" style="font-size: 0.82rem; font-weight: 600;">Nova Senha *</label>
+            <input type="password" id="inpNewPassword" class="form-control" placeholder="Mínimo de 4 caracteres">
+          </div>
+          <div class="form-group" style="margin-top: 10px;">
+            <label for="inpConfirmNewPassword" style="font-size: 0.82rem; font-weight: 600;">Confirmar Nova Senha *</label>
+            <input type="password" id="inpConfirmNewPassword" class="form-control" placeholder="Repita a nova senha">
+          </div>
+          <div class="modal-actions flex-between" style="margin-top: 20px; display: flex; gap: 8px;">
+            <button type="button" id="btnCancelChangePassword" class="btn btn-secondary">Cancelar</button>
+            <button type="button" id="btnSaveNewPassword" class="btn btn-primary" style="flex: 1;">Salvar Nova Senha</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="/js/rh.js?v=1.0"></script>
+</body>
+</html>

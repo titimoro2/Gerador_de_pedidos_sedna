@@ -71,6 +71,10 @@
               <span class="user-role-badge" id="navUserRole">Comercial</span>
             </div>
           </div>
+          <a href="/rh.html" id="btnGoToRhPanel" class="btn btn-sm btn-outline-primary" style="display: none; text-decoration: none;" title="Acessar Painel do RH (Catraca iD Control & Controle de Horas)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            Painel RH
+          </a>
           <button id="btnOpenUserManagement" class="btn btn-sm btn-outline-primary" style="display: none;" title="Gerenciar Usuários e Permissões">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
             Usuários
@@ -661,7 +665,8 @@
               <label for="selUserRolePreset">Perfil / Função Predefinida</label>
               <select id="selUserRolePreset" class="form-control">
                 <option value="commercial">Comercial (Cria e vê apenas suas propostas)</option>
-                <option value="president">Presidente / Diretoria (Vê todas, cria novas, não edita de outros)</option>
+                <option value="rh">RH - Recursos Humanos (Controle de Horas e Catraca iD Control)</option>
+                <option value="president">Presidente / Diretoria (Vê todas, cria novas e acessa RH)</option>
                 <option value="admin">Administrador (Controle e edição irrestrita)</option>
               </select>
             </div>

@@ -151,8 +151,8 @@
     <div class="login-container-card">
       <div class="login-brand-header">
         <img src="/assets/logo_sedna.png" alt="Sedna" class="login-brand-logo" onerror="this.style.display='none'">
-        <h1>GERADOR DE PEDIDOS</h1>
-        <p>Sedna Sport Fishing &middot; Acesso ao Sistema</p>
+        <h1>PORTAL SEDNA GROUP</h1>
+        <p>Comercial &amp; Recursos Humanos &middot; Acesso ao Sistema</p>
       </div>
 
       <div id="loginErrorAlert" class="login-error-alert"></div>
@@ -175,11 +175,18 @@
     </div>
 
     <div class="login-footer-info">
-      Sedna Group &copy; 2026 &middot; Gerador de Propostas Comerciais &middot; <span id="loginGitRevision" style="font-family: ui-monospace, monospace; background: rgba(255,255,255,0.12); padding: 2px 7px; border-radius: 4px; color: #cbd5e1;">Rev: c726481</span>
+      Sedna Group &copy; 2026 &middot; Comercial &amp; RH &middot; <span id="loginGitRevision" style="font-family: ui-monospace, monospace; background: rgba(255,255,255,0.12); padding: 2px 7px; border-radius: 4px; color: #cbd5e1;">Rev: c726481</span>
     </div>
   </div>
 
   <script>
+    function getRedirectUrlByRole(user) {
+      if (user && user.role === 'rh') {
+        return '/rh.html';
+      }
+      return '/';
+    }
+
     // Fetch and display current version & git revision
     fetch('/api/version')
       .then(r => r.json())
@@ -212,9 +219,10 @@
       fetch('/api/auth/me', {
         headers: { 'Authorization': `Bearer ${token}` }
       })
-      .then(res => {
+      .then(async res => {
         if (res.ok) {
-          window.location.replace('/');
+          const data = await res.json().catch(() => ({}));
+          window.location.replace(getRedirectUrlByRole(data.user));
         } else {
           sessionStorage.clear();
           localStorage.removeItem('sedna_token');
@@ -266,7 +274,7 @@
         localStorage.removeItem('sedna_expires_at');
         
         btnSubmit.textContent = 'Conectado! Redirecionando...';
-        window.location.replace('/');
+        window.location.replace(getRedirectUrlByRole(data.user));
       } catch (err) {
         alertBox.textContent = err.message;
         alertBox.style.display = 'block';

@@ -39,6 +39,7 @@ echo 1. Protegendo senhas e credenciais locais...
 "%GIT_CMD%" rm --cached ".env" >nul 2>&1
 "%GIT_CMD%" rm --cached "data/users.json" >nul 2>&1
 "%GIT_CMD%" rm --cached "data/db-config.json" >nul 2>&1
+"%GIT_CMD%" rm --cached "data/rh-db-config.json" >nul 2>&1
 
 echo 2. Verificando alteracoes locais...
 "%GIT_CMD%" add -A
@@ -47,6 +48,7 @@ echo 2. Verificando alteracoes locais...
 "%GIT_CMD%" rm --cached ".env" >nul 2>&1
 "%GIT_CMD%" rm --cached "data/users.json" >nul 2>&1
 "%GIT_CMD%" rm --cached "data/db-config.json" >nul 2>&1
+"%GIT_CMD%" rm --cached "data/rh-db-config.json" >nul 2>&1
 
 REM Verifica se ha arquivos modificados no index para commit
 "%GIT_CMD%" diff --cached --quiet
