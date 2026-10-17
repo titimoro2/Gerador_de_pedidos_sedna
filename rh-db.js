@@ -14,6 +14,7 @@ try {
 }
 
 const DATA_DIR = path.join(__dirname, 'data');
+const MAIN_DB_CONFIG_FILE = path.join(DATA_DIR, 'db-config.json');
 const RH_CONFIG_FILE = path.join(DATA_DIR, 'rh-db-config.json');
 const RH_MANUAL_LOGS_FILE = path.join(DATA_DIR, 'rh-manual-logs.json');
 
@@ -22,29 +23,48 @@ let mysqlPool = null;
 let lastConnectionError = null;
 let isConnected = false;
 
-// Configuração padrão para conexão com iD Control (iDSecure / Control iD)
+// Lê as credenciais do MySQL principal do servidor (db-config.json / .env)
+function loadMainMysqlCredentials() {
+  let fileCfg = {};
+  if (fs.existsSync(MAIN_DB_CONFIG_FILE)) {
+    try {
+      fileCfg = JSON.parse(fs.readFileSync(MAIN_DB_CONFIG_FILE, 'utf-8'));
+    } catch (e) {}
+  }
+  return {
+    mainEnabled: fileCfg.enabled !== undefined ? !!fileCfg.enabled : (process.env.DB_ENABLED === 'true' || process.env.DB_ENABLED === '1'),
+    host: fileCfg.host || process.env.DB_HOST || 'localhost',
+    port: parseInt(fileCfg.port || process.env.DB_PORT || 3306, 10),
+    user: fileCfg.user || process.env.DB_USER || 'root',
+    password: fileCfg.password !== undefined ? fileCfg.password : (process.env.DB_PASSWORD || ''),
+    mainDatabase: fileCfg.database || process.env.DB_NAME || 'sedna_pedidos'
+  };
+}
+
+// Configuração padrão para conexão com iD Control (Mesmo MySQL do Servidor em outro Database, ou SQL Server)
 const DEFAULT_CONFIG = {
   enabled: false,
-  dbType: 'mssql', // 'mssql' (SQL Server - padrão Control iD) | 'mysql'
+  useSameMysqlServer: true, // Usa automaticamente Host/Porta/Usuário/Senha do MySQL principal do servidor
+  dbType: 'mysql', // 'mysql' (Mesmo servidor MySQL em outro banco) | 'mssql' (SQL Server)
   host: 'localhost',
-  port: 1433,
-  instanceName: '', // Ex: SQLEXPRESS
-  user: 'sa',
+  port: 3306,
+  instanceName: '',
+  user: 'root',
   password: '',
-  database: 'iDSecure',
+  database: 'idsecure',
   workdayMinutes: 528, // 08h48m (padrão comercial/industrial) ou 480 (08h00)
   defaultLunchMinutes: 60, // 1h de intervalo padrão para o relatório de 1ª à última batida
   autoDeductLunchAfterMinutes: 360, // Desconta almoço em jornadas acima de 6h no modo direto
   mapping: {
     mode: 'auto', // 'auto' | 'table' | 'custom_query'
-    logsTable: 'AccessLogs',
+    logsTable: 'access_logs',
     colLogId: 'id',
     colLogTime: 'time',
     colLogUserId: 'idUser',
     colLogUserName: '',
     colLogDirection: 'event',
     colLogDevice: 'idDevice',
-    usersTable: 'Users',
+    usersTable: 'users',
     colUserId: 'id',
     colUserName: 'name',
     colUserRegistration: 'registration',
@@ -54,6 +74,7 @@ const DEFAULT_CONFIG = {
 };
 
 function loadRhConfig() {
+  const mainMysql = loadMainMysqlCredentials();
   let saved = {};
   if (fs.existsSync(RH_CONFIG_FILE)) {
     try {
@@ -62,14 +83,33 @@ function loadRhConfig() {
       console.warn('[RH iD Control] Erro ao ler rh-db-config.json:', e.message);
     }
   }
-  return {
+
+  const merged = {
     ...DEFAULT_CONFIG,
+    host: mainMysql.host,
+    port: mainMysql.port,
+    user: mainMysql.user,
+    password: mainMysql.password,
     ...saved,
     mapping: {
       ...DEFAULT_CONFIG.mapping,
       ...(saved.mapping || {})
     }
   };
+
+  // Se estiver configurado como MySQL usando o mesmo servidor principal (ou se a senha do RH estiver em branco e a do servidor existir),
+  // herda automaticamente as credenciais do MySQL do servidor!
+  if (merged.dbType === 'mysql' && (merged.useSameMysqlServer !== false || (!saved.password && mainMysql.password))) {
+    merged.host = saved.host || mainMysql.host || 'localhost';
+    merged.port = parseInt(saved.port || mainMysql.port || 3306, 10);
+    merged.user = saved.user || mainMysql.user || 'root';
+    if (!saved.password && mainMysql.password) {
+      merged.password = mainMysql.password;
+    }
+  }
+
+  merged.mainDatabaseName = mainMysql.mainDatabase;
+  return merged;
 }
 
 function saveRhConfig(newConfig) {
@@ -82,10 +122,11 @@ function saveRhConfig(newConfig) {
       ...(newConfig.mapping || {})
     }
   };
+  delete merged.mainDatabaseName;
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(RH_CONFIG_FILE, JSON.stringify(merged, null, 2), 'utf-8');
   closePools();
-  return merged;
+  return loadRhConfig();
 }
 
 async function closePools() {
@@ -100,25 +141,34 @@ async function closePools() {
   isConnected = false;
 }
 
-// Conecta ao SQL Server ou MySQL conforme configurado
-async function getConnection(customCfg = null) {
-  const cfg = customCfg || loadRhConfig();
+// Conecta ao MySQL ou SQL Server conforme configurado
+async function getConnection(customCfg = null, withoutDatabase = false) {
+  const baseCfg = loadRhConfig();
+  const cfg = customCfg ? { ...baseCfg, ...customCfg } : baseCfg;
+
+  // Se o usuário não digitou a senha no modal mas o MySQL do servidor já tem a senha salva, aproveita ela
+  if (cfg.dbType === 'mysql' && !cfg.password && baseCfg.password) {
+    cfg.password = baseCfg.password;
+  }
 
   if (cfg.dbType === 'mysql') {
-    if (!customCfg && mysqlPool) return { type: 'mysql', pool: mysqlPool, cfg };
-    const pool = mysql.createPool({
+    if (!customCfg && !withoutDatabase && mysqlPool) return { type: 'mysql', pool: mysqlPool, cfg };
+    const poolConfig = {
       host: cfg.host || 'localhost',
       port: parseInt(cfg.port || 3306, 10),
       user: cfg.user || 'root',
       password: cfg.password || '',
-      database: cfg.database || 'idcontrol',
       waitForConnections: true,
       connectionLimit: 5,
       connectTimeout: 6000
-    });
+    };
+    if (!withoutDatabase && cfg.database) {
+      poolConfig.database = cfg.database;
+    }
+    const pool = mysql.createPool(poolConfig);
     const conn = await pool.getConnection();
     conn.release();
-    if (!customCfg) {
+    if (!customCfg && !withoutDatabase) {
       mysqlPool = pool;
       isConnected = true;
       lastConnectionError = null;
@@ -126,7 +176,7 @@ async function getConnection(customCfg = null) {
     return { type: 'mysql', pool, cfg };
   }
 
-  // Default: Microsoft SQL Server (mssql)
+  // Microsoft SQL Server (mssql)
   if (!sql) {
     throw new Error('O pacote mssql não está instalado no servidor.');
   }
@@ -135,7 +185,6 @@ async function getConnection(customCfg = null) {
     return { type: 'mssql', pool: mssqlPool, cfg };
   }
 
-  // Suporte a host\INSTANCIA (ex: localhost\SQLEXPRESS)
   let serverHost = cfg.host || 'localhost';
   let instanceName = cfg.instanceName || '';
   if (serverHost.includes('\\')) {
@@ -174,20 +223,20 @@ async function getConnection(customCfg = null) {
 }
 
 // Executa uma query genérica no banco configurado
-async function executeQuery(queryText, customCfg = null) {
-  const conn = await getConnection(customCfg);
+async function executeQuery(queryText, customCfg = null, withoutDatabase = false) {
+  const conn = await getConnection(customCfg, withoutDatabase);
   try {
     if (conn.type === 'mysql') {
       const [rows] = await conn.pool.query(queryText);
-      if (customCfg) await conn.pool.end();
+      if (customCfg || withoutDatabase) await conn.pool.end();
       return rows;
     } else {
       const result = await conn.pool.request().query(queryText);
-      if (customCfg) await conn.pool.close();
+      if (customCfg || withoutDatabase) await conn.pool.close();
       return result.recordset || [];
     }
   } catch (err) {
-    if (customCfg) {
+    if (customCfg || withoutDatabase) {
       try {
         if (conn.type === 'mysql') await conn.pool.end();
         else await conn.pool.close();
@@ -197,17 +246,50 @@ async function executeQuery(queryText, customCfg = null) {
   }
 }
 
-// Testa conexão e descobre tabelas existentes no banco do iD Control
+// Testa conexão, lista todos os bancos disponíveis no MySQL e descobre tabelas do iD Control
 async function testAndInspectDatabase(testCfg = null) {
-  const cfg = testCfg ? { ...loadRhConfig(), ...testCfg } : loadRhConfig();
+  const baseCfg = loadRhConfig();
+  const cfg = testCfg ? { ...baseCfg, ...testCfg } : baseCfg;
+  if (cfg.dbType === 'mysql' && !cfg.password && baseCfg.password) {
+    cfg.password = baseCfg.password;
+  }
+
   try {
     let tables = [];
+    let availableDatabases = [];
+    let selectedDatabase = (cfg.database || '').trim();
+
     if (cfg.dbType === 'mysql') {
-      const rows = await executeQuery(
-        `SELECT TABLE_NAME as tableName FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '${cfg.database}' ORDER BY TABLE_NAME`,
-        cfg
-      );
-      tables = rows.map(r => r.tableName || r.TABLE_NAME);
+      // 1. Conecta ao MySQL sem exigir que o nome do banco já esteja certo, para listar todos os bancos existentes
+      const dbRows = await executeQuery('SHOW DATABASES', cfg, true);
+      const systemSchemas = new Set(['information_schema', 'performance_schema', 'mysql', 'sys']);
+      availableDatabases = dbRows
+        .map(r => r.Database || r.database || Object.values(r)[0])
+        .filter(dbName => dbName && !systemSchemas.has(String(dbName).toLowerCase()));
+
+      // 2. Verifica se o banco informado existe na lista; se não existir, escolhe automaticamente o banco do iD Control (outro banco diferente de sedna_pedidos)
+      const exactMatch = availableDatabases.find(d => d.toLowerCase() === selectedDatabase.toLowerCase());
+      if (exactMatch) {
+        selectedDatabase = exactMatch;
+      } else {
+        const mainDbLower = (baseCfg.mainDatabaseName || 'sedna_pedidos').toLowerCase();
+        const otherDbs = availableDatabases.filter(d => d.toLowerCase() !== mainDbLower);
+        const idControlCandidate = otherDbs.find(d => /id|catraca|acesso|ponto|control|sec|rh/i.test(d)) || otherDbs[0] || availableDatabases[0] || selectedDatabase;
+        if (idControlCandidate) {
+          selectedDatabase = idControlCandidate;
+          cfg.database = selectedDatabase;
+        }
+      }
+
+      if (selectedDatabase) {
+        const safeDb = selectedDatabase.replace(/'/g, "''");
+        const rows = await executeQuery(
+          `SELECT TABLE_NAME as tableName FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '${safeDb}' ORDER BY TABLE_NAME`,
+          cfg,
+          true
+        );
+        tables = rows.map(r => r.tableName || r.TABLE_NAME);
+      }
     } else {
       const rows = await executeQuery(
         `SELECT TABLE_NAME as tableName FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE IN ('BASE TABLE', 'VIEW') ORDER BY TABLE_NAME`,
@@ -218,11 +300,16 @@ async function testAndInspectDatabase(testCfg = null) {
 
     // Buscar colunas das principais tabelas candidatas
     const tableColumns = {};
+    const safeSchemaFilter = cfg.dbType === 'mysql' && selectedDatabase
+      ? ` AND TABLE_SCHEMA = '${selectedDatabase.replace(/'/g, "''")}'`
+      : '';
+
     for (const tbl of tables.slice(0, 40)) {
       try {
         const colRows = await executeQuery(
-          `SELECT COLUMN_NAME as colName, DATA_TYPE as dataType FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '${tbl.replace(/'/g, "''")}'`,
-          cfg
+          `SELECT COLUMN_NAME as colName, DATA_TYPE as dataType FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = '${tbl.replace(/'/g, "''")}'${safeSchemaFilter}`,
+          cfg,
+          cfg.dbType === 'mysql'
         );
         tableColumns[tbl] = colRows.map(c => ({
           name: c.colName || c.COLUMN_NAME,
@@ -236,7 +323,9 @@ async function testAndInspectDatabase(testCfg = null) {
 
     return {
       connected: true,
-      message: `Conectado com sucesso ao banco "${cfg.database}" (${cfg.dbType.toUpperCase()})! ${tables.length} tabela(s) localizada(s).`,
+      message: `Conectado com sucesso ao banco "${selectedDatabase}" (${cfg.dbType.toUpperCase()})! ${tables.length} tabela(s) localizada(s).`,
+      selectedDatabase,
+      availableDatabases,
       tables,
       tableColumns,
       suggestedMapping
@@ -247,6 +336,8 @@ async function testAndInspectDatabase(testCfg = null) {
     return {
       connected: false,
       message: `Falha ao conectar: ${err.message}`,
+      selectedDatabase: cfg.database,
+      availableDatabases: [],
       tables: [],
       tableColumns: {}
     };

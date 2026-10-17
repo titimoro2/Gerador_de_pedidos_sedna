@@ -19,10 +19,16 @@ async function apiFetch(url, options = {}) {
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
-  if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {
-    headers['Content-Type'] = 'application/json';
+  let body = options.body;
+  if (body !== undefined && body !== null && !(body instanceof FormData)) {
+    if (!headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+    if (typeof body === 'object') {
+      body = JSON.stringify(body);
+    }
   }
-  const response = await fetch(url, Object.assign({}, options, { headers }));
+  const response = await fetch(url, Object.assign({}, options, { headers, body }));
   if (response.status === 401) {
     sessionStorage.removeItem('sedna_token');
     sessionStorage.removeItem('sedna_user');
@@ -551,19 +557,19 @@ async function openIdControlConfigModal() {
     const cfg = await res.json();
 
     document.getElementById('cfgEnabled').checked = !!cfg.enabled;
-    document.getElementById('cfgDbType').value = cfg.dbType || 'mssql';
+    document.getElementById('cfgDbType').value = cfg.dbType || 'mysql';
     document.getElementById('cfgHost').value = cfg.host || 'localhost';
-    document.getElementById('cfgPort').value = cfg.port || 1433;
-    document.getElementById('cfgDatabase').value = cfg.database || 'iDSecure';
-    document.getElementById('cfgUser').value = cfg.user || 'sa';
+    document.getElementById('cfgPort').value = cfg.port || 3306;
+    document.getElementById('cfgDatabase').value = cfg.database || 'idsecure';
+    document.getElementById('cfgUser').value = cfg.user || 'root';
     document.getElementById('cfgPassword').value = cfg.password || '';
 
     const m = cfg.mapping || {};
-    document.getElementById('mapLogsTable').value = m.logsTable || 'AccessLogs';
+    document.getElementById('mapLogsTable').value = m.logsTable || 'access_logs';
     document.getElementById('mapColLogTime').value = m.colLogTime || 'time';
     document.getElementById('mapColLogUserId').value = m.colLogUserId || 'idUser';
     document.getElementById('mapColLogDirection').value = m.colLogDirection || 'event';
-    document.getElementById('mapUsersTable').value = m.usersTable || 'Users';
+    document.getElementById('mapUsersTable').value = m.usersTable || 'users';
     document.getElementById('mapColUserId').value = m.colUserId || 'id';
     document.getElementById('mapColUserName').value = m.colUserName || 'name';
     document.getElementById('mapColUserRegistration').value = m.colUserRegistration || 'registration';
@@ -572,23 +578,30 @@ async function openIdControlConfigModal() {
   }
 
   modal.classList.add('active');
+
+  // Como está no mesmo servidor MySQL, já lista automaticamente os bancos de dados existentes ao abrir o modal
+  if (document.getElementById('cfgDbType').value === 'mysql') {
+    testAndDiscoverIdControlDb();
+  }
 }
 
 function collectIdControlConfigFromForm() {
+  const dbType = document.getElementById('cfgDbType').value || 'mysql';
   return {
     enabled: document.getElementById('cfgEnabled').checked,
-    dbType: document.getElementById('cfgDbType').value,
-    host: document.getElementById('cfgHost').value.trim(),
-    port: Number(document.getElementById('cfgPort').value) || 1433,
+    useSameMysqlServer: dbType === 'mysql',
+    dbType,
+    host: document.getElementById('cfgHost').value.trim() || 'localhost',
+    port: Number(document.getElementById('cfgPort').value) || (dbType === 'mysql' ? 3306 : 1433),
     database: document.getElementById('cfgDatabase').value.trim(),
-    user: document.getElementById('cfgUser').value.trim(),
+    user: document.getElementById('cfgUser').value.trim() || (dbType === 'mysql' ? 'root' : 'sa'),
     password: document.getElementById('cfgPassword').value,
     mapping: {
-      logsTable: document.getElementById('mapLogsTable').value.trim() || 'AccessLogs',
+      logsTable: document.getElementById('mapLogsTable').value.trim() || 'access_logs',
       colLogTime: document.getElementById('mapColLogTime').value.trim() || 'time',
       colLogUserId: document.getElementById('mapColLogUserId').value.trim() || 'idUser',
       colLogDirection: document.getElementById('mapColLogDirection').value.trim() || 'event',
-      usersTable: document.getElementById('mapUsersTable').value.trim() || 'Users',
+      usersTable: document.getElementById('mapUsersTable').value.trim() || 'users',
       colUserId: document.getElementById('mapColUserId').value.trim() || 'id',
       colUserName: document.getElementById('mapColUserName').value.trim() || 'name',
       colUserRegistration: document.getElementById('mapColUserRegistration').value.trim() || 'registration'
@@ -611,7 +624,7 @@ async function testAndDiscoverIdControlDb() {
   const originalText = btn ? btn.innerHTML : '';
   if (btn) {
     btn.disabled = true;
-    btn.textContent = '⏳ Conectando e inspecionando tabelas...';
+    btn.textContent = '⏳ Listando bancos do MySQL e inspecionando tabelas...';
   }
 
   try {
@@ -623,8 +636,23 @@ async function testAndDiscoverIdControlDb() {
     const data = await res.json();
 
     if (!res.ok || !data.connected) {
-      showConfigAlert(`<strong>❌ Falha na conexão:</strong> ${escapeHtml(data.message || data.error || 'Não foi possível conectar ao banco.')}`, false);
+      showConfigAlert(`<strong>❌ Falha na conexão:</strong> ${escapeHtml(data.message || data.error || 'Não foi possível conectar ao MySQL.')}`, false);
       return;
+    }
+
+    // Preenche lista de bancos de dados encontrados no mesmo servidor MySQL
+    const dbSelect = document.getElementById('cfgDatabaseList');
+    const dbInput = document.getElementById('cfgDatabase');
+    if (data.selectedDatabase && dbInput) {
+      dbInput.value = data.selectedDatabase;
+    }
+
+    if (dbSelect && Array.isArray(data.availableDatabases) && data.availableDatabases.length > 0) {
+      dbSelect.style.display = 'block';
+      dbSelect.innerHTML = data.availableDatabases.map(dbName => {
+        const isSelected = data.selectedDatabase && dbName.toLowerCase() === data.selectedDatabase.toLowerCase();
+        return `<option value="${escapeHtml(dbName)}" ${isSelected ? 'selected' : ''}>📂 Banco encontrado no MySQL: ${escapeHtml(dbName)}</option>`;
+      }).join('');
     }
 
     // Se o auto-detector sugeriu tabelas/colunas do iD Control, preenche automaticamente
@@ -640,9 +668,16 @@ async function testAndDiscoverIdControlDb() {
       if (s.colUserRegistration) document.getElementById('mapColUserRegistration').value = s.colUserRegistration;
     }
 
+    // Já marca como ativo para facilitar o salvamento
+    const chkEnabled = document.getElementById('cfgEnabled');
+    if (chkEnabled) chkEnabled.checked = true;
+
     const tableNames = Array.isArray(data.tables) ? data.tables : Object.keys(data.tables || {});
+    const dbsInfo = Array.isArray(data.availableDatabases) && data.availableDatabases.length > 0
+      ? `<br>Bancos encontrados neste MySQL: <strong>${escapeHtml(data.availableDatabases.join(', '))}</strong>.`
+      : '';
     showConfigAlert(
-      `<strong>✅ Conexão estabelecida com sucesso!</strong> ${escapeHtml(data.message || '')} Tabelas detectadas: <code>${escapeHtml(tableNames.slice(0, 8).join(', '))}${tableNames.length > 8 ? '...' : ''}</code>. Mapeamento preenchido automaticamente!`,
+      `<strong>✅ Conexão estabelecida com sucesso!</strong> ${escapeHtml(data.message || '')}${dbsInfo}<br>Tabelas detectadas em <code>${escapeHtml(data.selectedDatabase || '')}</code>: <code>${escapeHtml(tableNames.slice(0, 10).join(', '))}${tableNames.length > 10 ? '...' : ''}</code>. Mapeamento preenchido automaticamente!`,
       true
     );
   } catch (err) {
@@ -716,10 +751,11 @@ function openChangePasswordModal(isForced = false) {
 }
 
 async function saveNewPassword() {
-  const currentPassword = document.getElementById('inpCurrentPassword').value;
-  const newPassword = document.getElementById('inpNewPassword').value;
-  const confirmPassword = document.getElementById('inpConfirmNewPassword').value;
+  const currentPassword = document.getElementById('inpCurrentPassword').value.trim();
+  const newPassword = document.getElementById('inpNewPassword').value.trim();
+  const confirmPassword = document.getElementById('inpConfirmNewPassword').value.trim();
   const alertBox = document.getElementById('changePasswordAlert');
+  const btnSave = document.getElementById('btnSaveNewPassword');
 
   const showErr = msg => {
     if (!alertBox) return;
@@ -737,20 +773,34 @@ async function saveNewPassword() {
     return showErr('A confirmação da senha não confere com a nova senha.');
   }
 
+  if (btnSave) {
+    btnSave.disabled = true;
+    btnSave.textContent = 'Salvando...';
+  }
+
   try {
     const res = await apiFetch('/api/auth/change-password', {
       method: 'POST',
-      body: JSON.stringify({ currentPassword, newPassword })
+      body: { currentPassword, newPassword, confirmPassword }
     });
     const data = await res.json();
     if (!res.ok) {
       return showErr(data.error || 'Erro ao alterar a senha.');
     }
 
+    if (rhState.user) {
+      rhState.user.mustChangePassword = false;
+      sessionStorage.setItem('sedna_user', JSON.stringify(rhState.user));
+    }
     rhState.isForcedPasswordChange = false;
     document.getElementById('modalChangePassword')?.classList.remove('active');
   } catch (err) {
     showErr(err.message);
+  } finally {
+    if (btnSave) {
+      btnSave.disabled = false;
+      btnSave.textContent = 'Salvar Nova Senha';
+    }
   }
 }
 
@@ -820,6 +870,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   document.getElementById('btnTestAndDiscover')?.addEventListener('click', testAndDiscoverIdControlDb);
   document.getElementById('btnSaveIdControlConfig')?.addEventListener('click', saveIdControlConfig);
+
+  // Quando o usuário escolher outro banco na lista de bancos encontrados no MySQL, atualiza o campo e detecta as tabelas dele
+  document.getElementById('cfgDatabaseList')?.addEventListener('change', e => {
+    const chosenDb = e.target.value;
+    if (chosenDb) {
+      document.getElementById('cfgDatabase').value = chosenDb;
+      testAndDiscoverIdControlDb();
+    }
+  });
 
   // Troca de tipo de banco ajusta porta padrão automaticamente
   document.getElementById('cfgDbType')?.addEventListener('change', e => {

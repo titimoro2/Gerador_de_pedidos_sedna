@@ -781,7 +781,7 @@
       <div class="modal-header flex-between">
         <div>
           <h3 style="margin: 0; font-size: 1.2rem; color: var(--rh-primary);">⚙️ Conexão Banco de Dados Catraca iD Control</h3>
-          <span class="text-muted" style="font-size: 0.8rem;">Configure a leitura direta do SQL Server ou MySQL onde o software iDSecure / iD Control grava os giros</span>
+          <span class="text-muted" style="font-size: 0.8rem;">Conecta ao mesmo servidor MySQL do sistema (em outro Database) ou a um banco externo</span>
         </div>
         <button type="button" id="btnCloseIdControlConfig" class="btn-icon" style="font-size: 1.5rem; background: none; border: none; cursor: pointer;">&times;</button>
       </div>
@@ -792,7 +792,7 @@
             <span>Ativar leitura em tempo real do Banco de Dados do iD Control</span>
           </label>
           <small class="text-muted" style="display: block; margin-top: 4px; margin-left: 28px;">
-            Quando desmarcado, o painel exibe os dados em Modo Demonstração/Simulação para testes.
+            As credenciais de Host, Porta, Usuário e Senha já são preenchidas automaticamente a partir do MySQL principal do servidor. Basta informar ou selecionar o <strong>Nome do Banco (Database)</strong> da catraca abaixo!
           </small>
         </div>
 
@@ -800,35 +800,36 @@
           <div class="form-group">
             <label>Tipo de Banco de Dados</label>
             <select id="cfgDbType" class="form-control">
-              <option value="mssql">Microsoft SQL Server (Padrão iDSecure / Control iD)</option>
-              <option value="mysql">MySQL / MariaDB</option>
+              <option value="mysql">MySQL / MariaDB (Mesmo Servidor MySQL - Outro Banco)</option>
+              <option value="mssql">Microsoft SQL Server</option>
             </select>
           </div>
           <div class="form-group">
-            <label>Host / IP do Servidor do Banco</label>
-            <input type="text" id="cfgHost" class="form-control" placeholder="localhost ou localhost\SQLEXPRESS">
+            <label>Nome do Banco da Catraca (Database)</label>
+            <input type="text" id="cfgDatabase" class="form-control" placeholder="Ex: idsecure, idcontrol, catraca...">
+            <select id="cfgDatabaseList" class="form-control" style="display: none; margin-top: 6px; background: #e0f2fe; border-color: #0284c7; font-weight: 600;"></select>
           </div>
           <div class="form-group">
-            <label>Porta (Padrão SQL Server: 1433 | MySQL: 3306)</label>
-            <input type="number" id="cfgPort" class="form-control" placeholder="1433">
+            <label>Host / IP do Servidor MySQL</label>
+            <input type="text" id="cfgHost" class="form-control" placeholder="localhost">
           </div>
           <div class="form-group">
-            <label>Nome do Banco de Dados (Database)</label>
-            <input type="text" id="cfgDatabase" class="form-control" placeholder="iDSecure">
+            <label>Porta (Padrão MySQL: 3306)</label>
+            <input type="number" id="cfgPort" class="form-control" placeholder="3306">
           </div>
           <div class="form-group">
-            <label>Usuário do Banco</label>
-            <input type="text" id="cfgUser" class="form-control" placeholder="sa">
+            <label>Usuário do MySQL</label>
+            <input type="text" id="cfgUser" class="form-control" placeholder="root">
           </div>
           <div class="form-group">
-            <label>Senha do Banco</label>
-            <input type="password" id="cfgPassword" class="form-control" placeholder="Senha do banco de dados">
+            <label>Senha do MySQL (Deixe em branco p/ usar a do servidor)</label>
+            <input type="password" id="cfgPassword" class="form-control" placeholder="Usa a senha do MySQL do servidor automaticamente">
           </div>
         </div>
 
         <div style="margin-top: 14px; display: flex; justify-content: flex-end;">
           <button type="button" id="btnTestAndDiscover" class="btn btn-sm btn-secondary">
-            🔌 Testar Conexão &amp; Detectar Tabelas Automaticamente
+            🔌 Listar Bancos do MySQL &amp; Detectar Tabelas Automaticamente
           </button>
         </div>
 
@@ -838,7 +839,7 @@
         <div style="margin-top: 18px; padding-top: 14px; border-top: 1px solid #cbd5e1;">
           <h4 style="margin: 0 0 8px; font-size: 0.95rem; color: var(--rh-primary);">Mapeamento de Tabelas do iD Control</h4>
           <p class="text-muted" style="font-size: 0.78rem; margin-top: 0; margin-bottom: 12px;">
-            O sistema já vem pré-configurado para o padrão Control iD (<code>AccessLogs</code> e <code>Users</code>). Se o seu banco usar outros nomes, clique em "Detectar Tabelas" acima ou ajuste abaixo:
+            Clique em <strong>"Listar Bancos do MySQL &amp; Detectar Tabelas"</strong> acima para o sistema preencher as tabelas e colunas automaticamente:
           </p>
 
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
@@ -922,6 +923,6 @@
     </div>
   </div>
 
-  <script src="/js/rh.js?v=1.0"></script>
+  <script src="/js/rh.js?v=1.1"></script>
 </body>
 </html>
